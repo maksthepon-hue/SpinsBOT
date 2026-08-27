@@ -4,30 +4,14 @@ import json
 import os
 import telebot
 from telebot import types
-import threading
-from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой рабочий токен
+BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой свежий рабочий токен
 DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
-
-# --- МИКРО ВЕБ-СЕРВЕР ДЛЯ ОБХОДА ПРОВЕРКИ ПОРТОВ RENDER ---
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Бот работает 24/7!"
-
-def run_flask_forever():
-    """Запуск многопоточного Flask-сервера для мгновенного ответа Render"""
-    port = int(os.environ.get("PORT", 10000))
-    print(f"Фоновый Flask-сервер запускается на порту {port}...")
-    # threaded=True включает асинхронную обработку запросов Render
-    app.run(host="0.0.0.0", port=port, threaded=True)
 
 # --- БАЗА ДАННЫХ (JSON-файл) ---
 def load_db():
@@ -175,7 +159,6 @@ def handle_text(message):
 
     state = db["states"].get(uid)
     
-    # Обработка ввода ставки
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
         db["states"][uid] = None
@@ -216,7 +199,6 @@ def handle_text(message):
             bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
         return
 
-    # Обработка ожидания промокода
     if state == "promo_waiting":
         db["states"][uid] = None
         save_db(db)
@@ -230,7 +212,6 @@ def handle_text(message):
         save_db(db)
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
-    # Главное меню
     if message.text == "💵 Мой баланс":
         bot.send_message(message.chat.id, f"💰 Твой баланс: *{db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
         
@@ -249,6 +230,18 @@ def handle_text(message):
         now = int(time.time())
         if now - db["users"][uid]["last_hourly"] < 3600:
             return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
+        bonus = random.randint(50, 200)
+        db["users"][uid]["balance"] += bonus
+        db["users"][uid]["last_hourly"] = now
+        save_db(db)
+        bot.send_message(message.chat.id, f"🎁 Получен часовой бонус: +{bonus} монет!")
+        
+    elif message.text == "📆 Ежедневный бонус":
+        now = int(time.time())
+        if now - db["users"][uid]["last_daily"] < 86400:
+            return bot.send_message(message.chat.id, f"⏳ Приходи позже! Через {(86400 - (now - db['users'][uid]['last_daily'])) // 3600} ч.")
+        bonus = random.randint(300, 1000)
+
 
 
         
