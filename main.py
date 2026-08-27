@@ -22,9 +22,11 @@ app = Flask(__name__)
 def home():
     return "Бот работает 24/7!"
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+def run_bot_in_background():
+    """Запуск бота в фоновом потоке, чтобы он не блокировал Flask"""
+    bot.remove_webhook()
+    print("Бот успешно запущен в фоновом потоке сервера Render!")
+    bot.infinity_polling(none_stop=True)
 
 # --- БАЗА ДАННЫХ (JSON-файл) ---
 def load_db():
@@ -101,25 +103,28 @@ def cmd_id(message):
 
 @bot.message_handler(commands=['pay'])
 def cmd_pay_slash(message):
-    """Перевод по слэш-команде для лички"""
     if message.chat.type in ["group", "supergroup"]:
         return bot.reply_to(message, "❌ В группах используй простой ответ на сообщение: `дать [сумма]`")
         
     from_id = str(message.from_user.id)
     text_parts = message.text.split()
     
-    if len(text_parts) < 3 or not text_parts[1].isdigit() or not text_parts[2].isdigit():
-        return bot.reply_to(message, "❌ Формат в личке: `/pay [ID игрока] [сумма]`. Узнать ID можно по команде `/id`.")
+    if len(text_parts) < 3:
+        return bot.reply_to(message, "❌ Формат в личке: `/pay [ID игрока] [сумма]`.")
         
     to_id = str(text_parts[1])
-    amount = int(text_parts[2])
+    amount_str = text_parts[2]
+    
+    if not amount_str.isdigit():
+        return bot.reply_to(message, "❌ Сумма должна быть числом!")
+        
+    amount = int(amount_str)
     
     if from_id == to_id: return bot.reply_to(message, "❌ Нельзя переводить себе!")
     if to_id not in db["users"]: return bot.reply_to(message, "❌ Этот игрок еще не запускал бота!")
     
     process_transfer(message, from_id, to_id, amount, db["users"][to_id]["username"])
 
-# --- ОБЩАЯ ФУНКЦИЯ ДЛЯ ПЕРЕВОДА ДЕНЕГ ---
 def process_transfer(message, from_id, to_id, amount, to_username):
     if amount <= 0:
         return bot.reply_to(message, "❌ Сумма должна быть больше 0!")
@@ -142,7 +147,6 @@ def handle_text(message):
     uid = str(message.from_user.id)
     init_user(message.from_user.id, message.from_user.username)
     
-    # --- ЛОГИКА ТЕКСТОВЫХ ПЕРЕВОДОВ В ГРУППАХ (дать 100, перевод 50) ---
     if message.chat.type in ["group", "supergroup"] and message.reply_to_message:
         text_lower = message.text.lower().strip()
         trigger_words = ["дать", "перевод", "pay", "подарить"]
@@ -169,7 +173,6 @@ def handle_text(message):
 
     state = db["states"].get(uid)
     
-    # Обработка ввода ставки
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
         db["states"][uid] = None
@@ -198,7 +201,7 @@ def handle_text(message):
         elif game_type == "football":
             if val >= 3 and val <= 5: is_win = True
         elif game_type == "basketball":
-            if val == 4 or val == 5: is_win = True  # Исправлено на 100%! Жесткая и надежная проверка без ин-команд
+            if val == 4 or val == 5: is_win = True
         
         if is_win:
             multiplier = round(random.uniform(1.5, 5.0), 1)
@@ -210,7 +213,6 @@ def handle_text(message):
             bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
         return
 
-    # Обработка ожидания промокода
     if state == "promo_waiting":
         db["states"][uid] = None
         save_db(db)
@@ -224,7 +226,6 @@ def handle_text(message):
         save_db(db)
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
-    # Главное меню
     if message.text == "💵 Мой баланс":
         bot.send_message(message.chat.id, f"💰 Твой баланс: *{db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
         
@@ -245,6 +246,11 @@ def handle_text(message):
             return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
         bonus = random.randint(50, 200)
         db["users"][uid]["balance"] += bonus
+        db["users"][uid]["last_hourly"] = now
+        save_db(db)
+        bot.send_message(message.chat.id, f"🎁 Получен часовой бонус: +{bonus} монет!")
+        
+
 
 
 
