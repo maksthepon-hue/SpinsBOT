@@ -8,7 +8,7 @@ import threading
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAG-2DEVH6PCbMwG85AO19UdjpOokYNNuO8"  # Твой токен вшит напрямую
+BOT_TOKEN = "8958818419:AAEb6Z8revRi25aQ91xeNGqUcf3L5s_1i1E"  # Твой токен вшит напрямую
 DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
