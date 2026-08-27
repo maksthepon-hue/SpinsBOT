@@ -6,8 +6,8 @@ from telebot import types
 import psycopg2
 from psycopg2.extras import DictCursor
 
-# --- НАСТРОЙКИ (Берутся из переменных окружения Render) ---
-BOT_TOKEN = os.getenv("8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtcHj_k")
+# --- НАСТРОЙКИ ---
+BOT_TOKEN = "8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtoHj_k"  # Твой токен вшит напрямую
 DATABASE_URL = os.getenv("DATABASE_URL")
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
@@ -49,7 +49,7 @@ def init_db():
         for i in range(1, 51):
             cur.execute("INSERT INTO promos (code, reward) VALUES (%s, %s);", (f"PROMO-{i}", 500))
             
-    # Таблица временных состояний (заменяет states из json)
+    # Таблица временных состояний
     cur.execute("""
         CREATE TABLE IF NOT EXISTS states (
             user_id VARCHAR(50) PRIMARY KEY,
@@ -242,7 +242,8 @@ def handle_text(message):
             return bot.send_message(message.chat.id, "❌ Такого промокода нет!", reply_markup=get_main_menu())
             
         cur.execute("SELECT used_promos FROM users WHERE user_id = %s;", (uid,))
-        used_promos = cur.fetchone()[0] or []
+        used_promos_res = cur.fetchone()
+        used_promos = used_promos_res[0] if used_promos_res and used_promos_res[0] else []
         
         if code in used_promos:
             cur.close()
@@ -269,4 +270,5 @@ def handle_text(message):
     elif message.text in ["⚽ Футбол", "🎯 Дартс", "🎰 Рулетка"]:
         g_names = {"⚽ Футбол": "football", "🎯 Дартс": "darts", "🎰 Рулетка": "roulette"}
         set_user_state(message.from_user.id, f"bet_{g_names[message.text]}")
+
 
