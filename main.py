@@ -6,7 +6,7 @@ import telebot
 from telebot import types
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtoHj_k"  # Твой токен вшит напрямую
+BOT_TOKEN = "8958818419:AAG-2DEVH6PCbMwG85AO19UdjpOokYNNuO8"  # Твой токен вшит напрямую
 DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
