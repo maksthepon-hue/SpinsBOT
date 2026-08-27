@@ -13,7 +13,7 @@ COOLDOWN_TIME = 2  # Антиспам в секундах
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
 
-# --- БАЗА ДАННЫХ (JSON-файл, который не сотрется на FPS.ms) ---
+# --- БАЗА ДАННЫХ (JSON-файл) ---
 def load_db():
     data = {"users": {}, "promos": {}, "states": {}}
     if os.path.exists(DB_FILE):
@@ -206,10 +206,17 @@ def handle_text(message):
         save_db(db)
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-# --- ЗАПУСК ---
+# --- ЖЕЛЕЗОБЕТОННЫЙ ЗАПУСК ---
 if __name__ == "__main__":
-    print("Бот успешно запущен на сервере FPS.ms!")
-    bot.infinity_polling(none_stop=True)
+    print("Бот успешно запущен на сервере TeleBotHost!")
+    while True:
+        try:
+            bot.remove_webhook()
+            bot.polling(none_stop=True, interval=0, timeout=20)
+        except Exception as e:
+            print(f"Ошибка пуллинга, перезапуск через 5 секунд: {e}")
+            time.sleep(5)
+
 
 
 
