@@ -231,6 +231,3 @@ async def enter_promo_request(message: Message, state: FSMContext):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
     await message.answer(f"✍️ {get_ping(message)}, введите промокод:", parse_mode="Markdown")
-
-
-
