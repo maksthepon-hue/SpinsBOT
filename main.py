@@ -4,14 +4,35 @@ import json
 import os
 import telebot
 from telebot import types
+import threading
+from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой свежий рабочий токен
+BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой рабочий токен
 DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
+
+# --- МИКРО ВЕБ-СЕРВЕР ДЛЯ РЕНДЕРА ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Казино работает 24/7!"
+
+def run_bot_in_background():
+    """Запуск пуллинга бота в фоновом потоке"""
+    try:
+        bot.remove_webhook()
+        print("Бот успешно запущен в облаке Render!")
+        bot.infinity_polling(none_stop=True)
+    except Exception as e:
+        print(f"Ошибка пуллинга: {e}")
+
+# Сразу при запуске файла создаем фоновый поток для телеграм-бота
+threading.Thread(target=run_bot_in_background, daemon=True).start()
 
 # --- БАЗА ДАННЫХ (JSON-файл) ---
 def load_db():
@@ -132,7 +153,6 @@ def handle_text(message):
     uid = str(message.from_user.id)
     init_user(message.from_user.id, message.from_user.username)
     
-    # --- ЛОГИКА ТЕКСТОВЫХ ПЕРЕВОДОВ В ГРУППАХ ---
     if message.chat.type in ["group", "supergroup"] and message.reply_to_message:
         text_lower = message.text.lower().strip()
         trigger_words = ["дать", "перевод", "pay", "подарить"]
@@ -231,16 +251,7 @@ def handle_text(message):
         if now - db["users"][uid]["last_hourly"] < 3600:
             return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
         bonus = random.randint(50, 200)
-        db["users"][uid]["balance"] += bonus
-        db["users"][uid]["last_hourly"] = now
-        save_db(db)
-        bot.send_message(message.chat.id, f"🎁 Получен часовой бонус: +{bonus} монет!")
-        
-    elif message.text == "📆 Ежедневный бонус":
-        now = int(time.time())
-        if now - db["users"][uid]["last_daily"] < 86400:
-            return bot.send_message(message.chat.id, f"⏳ Приходи позже! Через {(86400 - (now - db['users'][uid]['last_daily'])) // 3600} ч.")
-        bonus = random.randint(300, 1000)
+
 
 
 
