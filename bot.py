@@ -32,9 +32,9 @@ dp = Dispatcher()
 users_db = {}
 used_promos_db = {}
 bonus_timers = {}
-anti_spam = {} 
 
-# Переменные для викторины
+# Словари для антиспама и викторины
+anti_spam = {} 
 quiz_current = {"question": None, "answer": None, "reward": 0, "active": False}
 
 PROMO_CODES = {
@@ -47,6 +47,7 @@ PROMO_CODES = {
 class PromoStates(StatesGroup):
     waiting_for_promo = State()
 
+# Безопасный пинг пользователя (по username или по имени)
 def get_ping(message: Message) -> str:
     if message.from_user.username:
         return f"@{message.from_user.username}"
@@ -84,7 +85,7 @@ def get_keyboard():
 
 # Функция генерации примера (вызывается случайно при действиях игроков)
 async def try_trigger_quiz(message: Message):
-    if quiz_current["active"] or random.random() > 0.3:  # Шанс 30% при каждом действии
+    if quiz_current["active"] or random.random() > 0.3:  # Шанс 30% при каждом клике
         return
     num1 = random.randint(10, 99)
     num2 = random.randint(10, 99)
@@ -189,10 +190,10 @@ async def transfer_money(message: Message):
         await message.answer(f"❌ {get_ping(message)}, нельзя переводить коины самому себе!", parse_mode="Markdown")
         return
     parts = message.text.split()
-    if len(parts) < 2 or not parts[1].isdigit():
+    if len(parts) < 2 or not parts.isdigit():
         await message.answer(f"✍️ {get_ping(message)}, пример команды: `Перевод 500`", parse_mode="Markdown")
         return
-    amount = int(parts[1])
+    amount = int(parts)
     if amount <= 0:
         await message.answer(f"⚠️ {get_ping(message)}, сумма должна быть больше 0!", parse_mode="Markdown")
         return
@@ -221,4 +222,3 @@ async def process_promo(message: Message, state: FSMContext):
     if promo_text not in PROMO_CODES:
         await message.answer(f"❌ {get_ping(message)}, такого промокода нет!", parse_mode="Markdown")
         return
-    if promo_text in used_promos_db[user_id]:
