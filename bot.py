@@ -11,7 +11,6 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-# --- ВЕБ-СЕРВЕР ДЛЯ ОБХОДА БЛОКИРОВКИ RENDER ---
 class SimpleWeb(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -23,9 +22,7 @@ def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), SimpleWeb)
     server.serve_forever()
-# -----------------------------------------------
 
-# --- РАБОТА С БАЗОЙ ДАННЫХ SQLITE ---
 DB_FILE = "casino_base.db"
 
 def init_db():
@@ -52,9 +49,8 @@ def init_db():
     conn.close()
 
 init_db()
-# -----------------------------------------------
 
-TOKEN = '8787908421:AAFEVIkl157AYeUGxGqSsEaCl8WSKJeMEao'  # Сюда твой токен от @BotFather
+TOKEN = '8787908421:AAGOCR_ka0qZWqHmtMMlBWVjexGrN9geQ2M'  # Сюда твой токен от @BotFather
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -62,12 +58,7 @@ dp = Dispatcher()
 anti_spam = {} 
 quiz_current = {"question": None, "answer": None, "reward": 0, "active": False}
 
-PROMO_CODES = {
-    "START2026": 500,
-    "BONUS777": 1000,
-    "FREECOINS": 300,
-    "MILLION": 1000000
-}
+PROMO_CODES = {"START2026": 500, "BONUS777": 1000, "FREECOINS": 300, "MILLION": 1000000}
 
 class PromoStates(StatesGroup):
     waiting_for_promo = State()
@@ -80,8 +71,7 @@ def get_ping(message: Message) -> str:
 def is_spamming(user_id: int) -> bool:
     current_time = time.time()
     if user_id in anti_spam:
-        last_time = anti_spam[user_id]
-        if current_time - last_time < 2.0:
+        if current_time - anti_spam[user_id] < 2.0:
             return True
     anti_spam[user_id] = current_time
     return False
@@ -104,26 +94,7 @@ def db_get_user(user_id: int, username: str = None):
 def db_update_user(user_id: int, balance: int, bet: int, last_hourly: int, last_daily: int):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE users 
-        SET balance = ?, bet = ?, last_hourly = ?, last_daily = ? 
-        WHERE user_id = ?
-    """, (balance, bet, last_hourly, last_daily, user_id))
-    conn.commit()
-    conn.close()
-
-def db_check_promo(user_id: int, promo: str) -> bool:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM used_promos WHERE user_id = ? AND promo = ?", (user_id, promo))
-    res = cursor.fetchone()
-    conn.close()
-    return res is not None
-
-def db_use_promo(user_id: int, promo: str):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO used_promos (user_id, promo) VALUES (?, ?)", (user_id, promo))
+    cursor.execute("UPDATE users SET balance = ?, bet = ?, last_hourly = ?, last_daily = ? WHERE user_id = ?", (balance, bet, last_hourly, last_daily, user_id))
     conn.commit()
     conn.close()
 
@@ -143,16 +114,11 @@ async def try_trigger_quiz(message: Message):
     num2 = random.randint(10, 99)
     operation = random.choice(["+", "-"])
     ans = num1 + num2 if operation == "+" else num1 - num2
-    
     quiz_current["question"] = f"{num1} {operation} {num2}"
     quiz_current["answer"] = str(ans)
     quiz_current["reward"] = random.randint(300, 1500)
     quiz_current["active"] = True
-    
-    await message.answer(
-        f"🔔 *БЫСТРЫЙ ИВЕНТ ДЛЯ ВСЕХ!*\n\nКто первый решит пример, получит куш!\n📊 Пример: *{quiz_current['question']} = ?*\n💰 Награда: *{quiz_current['reward']}* коинов!\n\nНапишите просто число-ответ в чат!",
-        parse_mode="Markdown"
-    )
+    await message.answer(f"🔔 *БЫСТРЫЙ ИВЕНТ ДЛЯ ВСЕХ!*\n\nКто первый решит пример, получит куш!\n📊 Пример: *{quiz_current['question']} = ?*\n💰 Награда: *{quiz_current['reward']}* коинов!\n\nНапишите число-ответ в чат!", parse_mode="Markdown")
 
 @dp.message(Command("start"))
 async def start_cmd(message: Message, state: FSMContext):
@@ -161,13 +127,7 @@ async def start_cmd(message: Message, state: FSMContext):
         return
     await state.clear()
     user = db_get_user(message.from_user.id, message.from_user.username)
-    await message.answer(
-        f"👋 Привет, {get_ping(message)}!\nБот работает 24/7.\n\n"
-        f"💰 Твой реальный баланс: *{user['balance']}* коинов.\n"
-        f"💵 Текущая ставка: *{user['bet']}* коинов.",
-        reply_markup=get_keyboard(),
-        parse_mode="Markdown"
-    )
+    await message.answer(f"👋 Привет, {get_ping(message)}!\nБот работает 24/7. Включена БД, антиспам и пинги!\n\n💰 Твой реальный баланс: *{user['balance']}* коинов.\n💵 Ставка: *{user['bet']}* коинов.", reply_markup=get_keyboard(), parse_mode="Markdown")
 
 @dp.message(F.text == "💰 Баланс")
 async def show_balance(message: Message):
@@ -233,12 +193,36 @@ async def daily_bonus(message: Message):
     db_update_user(user_id, user["balance"], user["bet"], user["last_hourly"], current_time)
     await message.answer(f"🎉 {get_ping(message)}, ты получил +5000 коинов!\n💰 Баланс: *{user['balance']}* коинов.", parse_mode="Markdown")
 
-@dp.message(lambda msg: msg.text and msg.text.lower().startswith("перевод"))
-async def transfer_money(message: Message):
-    if is_spamming(message.from_user.id): return
-    if not message.reply_to_message:
-        await message.answer(f"⚠️ {get_ping(message)}, команда работает как ответ на сообщение друга!", parse_mode="Markdown")
+@dp.message(F.text == "🎁 Промокод")
+async def enter_promo_request(message: Message, state: FSMContext):
+    if is_spamming(message.from_user.id):
+        await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
-    from_user_id = message.from_user.id
-    to_user_id = message.reply_to_message.from_user.id
-    if from_user_id == to_user_id:
+    await message.answer(f"✍️ {get_ping(message)}, введите промокод:", parse_mode="Markdown")
+    await state.set_state(PromoStates.waiting_for_promo)
+
+@dp.message(PromoStates.waiting_for_promo)
+async def process_promo(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = db_get_user(user_id, message.from_user.username)
+    promo_text = message.text.strip().upper()
+    if promo_text not in PROMO_CODES:
+        await message.answer(f"❌ {get_ping(message)}, такого промокода нет!", parse_mode="Markdown")
+        await state.clear()
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM used_promos WHERE user_id = ? AND promo = ?", (user_id, promo_text))
+    if cursor.fetchone():
+        await message.answer(f"⚠️ {get_ping(message)}, вы уже активировали его!", parse_mode="Markdown")
+        conn.close()
+        await state.clear()
+        return
+    
+    bonus = PROMO_CODES[promo_text]
+    user['balance'] += bonus
+    cursor.execute("INSERT INTO used_promos (user_id, promo) VALUES (?, ?)", (user_id, promo_text))
+    conn.commit()
+    conn.close()
+    
