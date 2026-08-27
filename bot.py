@@ -1,79 +1,40 @@
 import time
 import random
+import json
 import os
 import telebot
 from telebot import types
-import psycopg2
-from psycopg2.extras import DictCursor
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtoHj_k"  # Твой токен вшит напрямую
-DATABASE_URL = os.getenv("DATABASE_URL")
+DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
 
-# --- ФОНОВЫЙ ВЕБ-СЕРВЕР ДЛЯ ОБХОДА ОГРАНИЧЕНИЙ RENDER ---
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is alive!")
+# --- БАЗА ДАННЫХ (JSON-файл, который не сотрется на FPS.ms) ---
+def load_db():
+    data = {"users": {}, "promos": {}, "states": {}}
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, 'r', encoding='utf-8') as f:
+            try: 
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    data.update(loaded)
+            except: 
+                pass
+    if not data["promos"]:
+        data["promos"] = {f"PROMO-{i}": 500 for i in range(1, 51)}
+    if "states" not in data:
+        data["states"] = {}
+    return data
 
-    def log_message(self, format, *args):
-        return  # Отключаем лишний спам логов сервера в консоль
+def save_db(data):
+    with open(DB_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-def run_health_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    print(f"Фоновый веб-сервер запущен на порту {port}")
-    server.serve_forever()
-
-# --- ПОДКЛЮЧЕНИЕ И ИНИЦИАЛИЗАЦИЯ БД ---
-def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
-
-def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id VARCHAR(50) PRIMARY KEY,
-            username VARCHAR(100),
-            balance INT DEFAULT 1000,
-            last_hourly INT DEFAULT 0,
-            last_daily INT DEFAULT 0,
-            used_promos TEXT[] DEFAULT '{}'
-        );
-    """)
-    
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS promos (
-            code VARCHAR(50) PRIMARY KEY,
-            reward INT
-        );
-    """)
-    
-    cur.execute("SELECT COUNT(*) FROM promos;")
-    if cur.fetchone() == 0:
-        for i in range(1, 51):
-            cur.execute("INSERT INTO promos (code, reward) VALUES (%s, %s);", (f"PROMO-{i}", 500))
-            
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS states (
-            user_id VARCHAR(50) PRIMARY KEY,
-            state_val VARCHAR(50)
-        );
-    """)
-    
-    conn.commit()
-    cur.close()
-    conn.close()
+db = load_db()
 
 def check_spam(user_id):
     now = time.time()
@@ -85,39 +46,15 @@ def check_spam(user_id):
 
 def init_user(user_id, username):
     uid = str(user_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO users (user_id, username) 
-        VALUES (%s, %s) 
-        ON CONFLICT (user_id) DO UPDATE SET username = %s;
-    """, (uid, username or "Игрок", username or "Игрок"))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def get_user_state(user_id):
-    uid = str(user_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT state_val FROM states WHERE user_id = %s;", (uid,))
-    res = cur.fetchone()
-    cur.close()
-    conn.close()
-    return res[0] if res else None
-
-def set_user_state(user_id, state_val):
-    uid = str(user_id)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO states (user_id, state_val) 
-        VALUES (%s, %s) 
-        ON CONFLICT (user_id) DO UPDATE SET state_val = %s;
-    """, (uid, state_val, state_val))
-    conn.commit()
-    cur.close()
-    conn.close()
+    if uid not in db["users"]:
+        db["users"][uid] = {
+            "username": username or "Игрок",
+            "balance": 1000,
+            "last_hourly": 0,
+            "last_daily": 0,
+            "used_promos": []
+        }
+        save_db(db)
 
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -132,7 +69,8 @@ def get_main_menu():
 def cmd_start(message):
     if check_spam(message.from_user.id): return
     init_user(message.from_user.id, message.from_user.username)
-    set_user_state(message.from_user.id, None)
+    db["states"][str(message.from_user.id)] = None
+    save_db(db)
     
     welcome = (
         f"🎰 ✨ *Добро пожаловать в Казино, {message.from_user.first_name}!* ✨ 🎰\n\n"
@@ -161,22 +99,12 @@ def cmd_pay(message):
     init_user(from_id, message.from_user.username)
     init_user(to_id, message.reply_to_message.from_user.username)
     
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT balance FROM users WHERE user_id = %s;", (from_id,))
-    from_balance = cur.fetchone()[0]
-    
-    if from_balance < amount:
-        cur.close()
-        conn.close()
+    if db["users"][from_id]["balance"] < amount:
         return bot.reply_to(message, "❌ Недостаточно монет на балансе!")
         
-    cur.execute("UPDATE users SET balance = balance - %s WHERE user_id = %s;", (amount, from_id))
-    cur.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s;", (amount, to_id))
-    conn.commit()
-    cur.close()
-    conn.close()
-    
+    db["users"][from_id]["balance"] -= amount
+    db["users"][to_id]["balance"] += amount
+    save_db(db)
     bot.send_message(message.chat.id, f"✅ Игрок @{message.from_user.username} перевел {amount} монет игроку @{message.reply_to_message.from_user.username}!")
 
 # --- ТЕКСТОВЫЕ КНОПКИ ---
@@ -189,35 +117,28 @@ def handle_text(message):
     if check_spam(message.from_user.id):
         return bot.send_message(message.chat.id, "⚠️ Не спамь! Подождите секунду.")
 
-    state = get_user_state(message.from_user.id)
+    state = db["states"].get(uid)
     
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
-        set_user_state(message.from_user.id, None)
+        db["states"][uid] = None
+        save_db(db)
         
         if not message.text.isdigit():
             return bot.send_message(message.chat.id, "❌ Ставка должна быть числом!", reply_markup=get_main_menu())
         
         bet = int(message.text)
         if bet <= 0: return bot.send_message(message.chat.id, "❌ Ставка должна быть больше 0!", reply_markup=get_main_menu())
+        if db["users"][uid]["balance"] < bet: return bot.send_message(message.chat.id, "❌ Недостаточно монет!", reply_markup=get_main_menu())
         
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT balance FROM users WHERE user_id = %s;", (uid,))
-        balance = cur.fetchone()[0]
-        
-        if balance < bet:
-            cur.close()
-            conn.close()
-            return bot.send_message(message.chat.id, "❌ Недостаточно монет!", reply_markup=get_main_menu())
-        
-        cur.execute("UPDATE users SET balance = balance - %s WHERE user_id = %s;", (bet, uid))
-        conn.commit()
+        # Запуск игры
+        db["users"][uid]["balance"] -= bet
+        save_db(db)
         
         emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰"}
         msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
         val = msg.dice.value
-        time.sleep(4)
+        time.sleep(4) # Анимация кубика
         
         is_win = False
         if game_type == "roulette":
@@ -230,50 +151,66 @@ def handle_text(message):
         if is_win:
             multiplier = round(random.uniform(1.5, 5.0), 1)
             win_amount = int(bet * multiplier)
-            cur.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s;", (win_amount, uid))
-            conn.commit()
+            db["users"][uid]["balance"] += win_amount
+            save_db(db)
             bot.reply_to(message, f"🎉 *ПОБЕДА!* 🎉\n🔥 Выпало: {val}\n📈 Множитель: x{multiplier}\n💰 Случайный выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
         else:
             bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
-            
-        cur.close()
-        conn.close()
         return
 
     if state == "promo_waiting":
-        set_user_state(message.from_user.id, None)
+        db["states"][uid] = None
+        save_db(db)
         code = message.text.strip()
+        if code not in db["promos"]: return bot.send_message(message.chat.id, "❌ Такого промокода нет!", reply_markup=get_main_menu())
+        if code in db["users"][uid]["used_promos"]: return bot.send_message(message.chat.id, "❌ Ты уже активировал этот код!", reply_markup=get_main_menu())
         
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        cur.execute("SELECT reward FROM promos WHERE code = %s;", (code,))
-        promo_res = cur.fetchone()
-        if not promo_res:
-            cur.close()
-            conn.close()
-            return bot.send_message(message.chat.id, "❌ Такого промокода нет!", reply_markup=get_main_menu())
-            
-        cur.execute("SELECT used_promos FROM users WHERE user_id = %s;", (uid,))
-        used_promos_res = cur.fetchone()
-        used_promos = used_promos_res[0] if used_promos_res and used_promos_res[0] else []
-        
-        if code in used_promos:
-            cur.close()
-            conn.close()
-            return bot.send_message(message.chat.id, "❌ Ты уже активировал этот код!", reply_markup=get_main_menu())
-        
-        reward = promo_res[0]
-        cur.execute("UPDATE users SET balance = balance + %s, used_promos = array_append(used_promos, %s) WHERE user_id = %s;", (reward, code, uid))
-        conn.commit()
-        cur.close()
-        conn.close()
+        reward = db["promos"][code]
+        db["users"][uid]["balance"] += reward
+        db["users"][uid]["used_promos"].append(code)
+        save_db(db)
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
+    # Обработка главного меню
     if message.text == "💵 Мой баланс":
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT balance FROM users WHERE user_id = %s;", (uid,))
+        bot.send_message(message.chat.id, f"💰 Твой баланс: *{db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
+        
+    elif message.text in ["⚽ Футбол", "🎯 Дартс", "🎰 Рулетка"]:
+        g_names = {"⚽ Футбол": "football", "🎯 Дартс": "darts", "🎰 Рулетка": "roulette"}
+        db["states"][uid] = f"bet_{g_names[message.text]}"
+        save_db(db)
+        bot.send_message(message.chat.id, f"Выбрана игра: {message.text}\n✏️ Введи сумму ставки числом:")
+        
+    elif message.text == "🎫 Промокод":
+        db["states"][uid] = "promo_waiting"
+        save_db(db)
+        bot.send_message(message.chat.id, "✏️ Введи промокод (Например: `PROMO-1`):", parse_mode="Markdown")
+        
+    elif message.text == "🎁 Ежечасный бонус":
+        now = int(time.time())
+        if now - db["users"][uid]["last_hourly"] < 3600:
+            return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
+        bonus = random.randint(50, 200)
+        db["users"][uid]["balance"] += bonus
+        db["users"][uid]["last_hourly"] = now
+        save_db(db)
+        bot.send_message(message.chat.id, f"🎁 Получен часовой бонус: +{bonus} монет!")
+        
+    elif message.text == "📆 Ежедневный бонус":
+        now = int(time.time())
+        if now - db["users"][uid]["last_daily"] < 86400:
+            return bot.send_message(message.chat.id, f"⏳ Приходи позже! Через {(86400 - (now - db['users'][uid]['last_daily'])) // 3600} ч.")
+        bonus = random.randint(300, 1000)
+        db["users"][uid]["balance"] += bonus
+        db["users"][uid]["last_daily"] = now
+        save_db(db)
+        bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
+
+# --- ЗАПУСК ---
+if __name__ == "__main__":
+    print("Бот успешно запущен на сервере FPS.ms!")
+    bot.infinity_polling(none_stop=True)
+
 
 
 
