@@ -4,14 +4,28 @@ import json
 import os
 import telebot
 from telebot import types
+import threading
+from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAG-2DEVH6PCbMwG85AO19UdjpOokYNNuO8"  # Твой токен вшит напрямую
+BOT_TOKEN = "8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtoHj_k"  # Твой токен вшит напрямую
 DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
+
+# --- МИКРО ВЕБ-СЕРВЕР ДЛЯ ОБХОДА ПРОВЕРКИ ПОРТОВ RENDER ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Бот работает 24/7!"
+
+def run_flask():
+    # Render автоматически передает нужный порт в переменную PORT, по умолчанию 10000
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 # --- БАЗА ДАННЫХ (JSON-файл) ---
 def load_db():
@@ -92,10 +106,10 @@ def cmd_pay(message):
     if from_id == to_id: return bot.reply_to(message, "❌ Нельзя переводить себе!")
     
     text_parts = message.text.split()
-    if len(text_parts) < 2 or not text_parts[1].isdigit():
+    if len(text_parts) < 2 or not text_parts.isdigit():
         return bot.reply_to(message, "❌ Укажи сумму числом. Пример: `/pay 100`")
         
-    amount = int(text_parts[1])
+    amount = int(text_parts)
     init_user(from_id, message.from_user.username)
     init_user(to_id, message.reply_to_message.from_user.username)
     
@@ -138,7 +152,7 @@ def handle_text(message):
         emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰"}
         msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
         val = msg.dice.value
-        time.sleep(4) # Анимация кубика
+        time.sleep(4)
         
         is_win = False
         if game_type == "roulette":
@@ -171,7 +185,6 @@ def handle_text(message):
         save_db(db)
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
-    # Обработка главного меню
     if message.text == "💵 Мой баланс":
         bot.send_message(message.chat.id, f"💰 Твой баланс: *{db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
         
@@ -206,16 +219,16 @@ def handle_text(message):
         save_db(db)
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-# --- ЖЕЛЕЗОБЕТОННЫЙ ЗАПУСК ---
+# --- ЗАПУСК ---
 if __name__ == "__main__":
-    print("Бот успешно запущен на сервере TeleBotHost!")
-    while True:
-        try:
-            bot.remove_webhook()
-            bot.polling(none_stop=True, interval=0, timeout=20)
-        except Exception as e:
-            print(f"Ошибка пуллинга, перезапуск через 5 секунд: {e}")
-            time.sleep(5)
+    # 1. Запуск веб-сервера Flask в отдельном фоновом потоке
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    # 2. Очистка вебхуков и запуск бесконечного пуллинга бота
+    bot.remove_webhook()
+    print("Бот успешно запущен на сервере Render!")
+    bot.infinity_polling(none_stop=True)
+
 
 
 
