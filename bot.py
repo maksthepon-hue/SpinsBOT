@@ -7,24 +7,20 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-TOKEN = 'ВАШ_ТОКЕН_БОТА'  # Замените на ваш токен от @BotFather
+TOKEN = '8787908421:AAFEVIkl157AYeUGxGqSsEaCl8WSKJeMEao'  # Сюда ваш токен от @BotFather
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Общая база данных (в оперативной памяти)
 users_db = {}
 used_promos_db = {}
-
-# Таймеры для бонусов: {user_id: {"hourly": timestamp, "daily": timestamp}}
 bonus_timers = {}
 
-# Список промокодов и их награда (Добавлен промик на миллион!)
 PROMO_CODES = {
     "START2026": 500,
     "BONUS777": 1000,
     "FREECOINS": 300,
-    "MILLION": 1000000  # Ваш новый промокод на 1 000 000 коинов!
+    "MILLION": 1000000  # Промик на миллион
 }
 
 class PromoStates(StatesGroup):
@@ -41,11 +37,12 @@ def get_user_data(user_id: int, username: str = None):
         bonus_timers[user_id] = {"hourly": 0, "daily": 0}
     return users_db[user_id]
 
+# Новая переписанная клавиатура
 def get_keyboard():
     kb = [
         [KeyboardButton(text="🎰 Рулетка"), KeyboardButton(text="⚽ Футбол"), KeyboardButton(text="🎯 Дартс")],
-        [KeyboardButton(text="💰 Баланс"), KeyboardButton(text="🎁 Промокод")],
         [KeyboardButton(text="⏱ Часовой бонус"), KeyboardButton(text="📅 Дневной бонус")],
+        [KeyboardButton(text="💰 Баланс"), KeyboardButton(text="🎁 Промокод")],
         [KeyboardButton(text="➕ Повысить ставку"), KeyboardButton(text="➖ Снизить ставку")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
@@ -57,17 +54,15 @@ async def start_cmd(message: Message, state: FSMContext):
     user = get_user_data(user_id, message.from_user.username)
     
     if message.chat.type != "private":
-        await message.answer("👋 Привет всем в чате! Я бот-казино. Чтобы играть, используйте кнопки ниже или пишите команды.")
+        await message.answer("👋 Привет всем в чате! Я бот-казино.")
         return
 
     await message.answer(
         f"👋 Привет, {message.from_user.first_name}!\n"
-        f"Добро пожаловать в виртуальное казино.\n\n"
-        f"💰 Твой стартовый баланс: {user['balance']} коинов.\n"
-        f"💵 Текущая ставка: {user['bet']} коинов.\n\n"
-        f"📌 Чтобы перевести коины другу в чате, ответьте на его сообщение командой:\n`Перевод [сумма]`",
-        reply_markup=get_keyboard(),
-        parse_mode="Markdown"
+        f"Клавиатура обновлена. Проверь новые кнопки бонусов ниже!\n\n"
+        f"💰 Твой баланс: {user['balance']} коинов.\n"
+        f"💵 Ставка: {user['bet']} коинов.",
+        reply_markup=get_keyboard()
     )
 
 @dp.message(F.text == "💰 Баланс")
@@ -90,7 +85,7 @@ async def lower_bet(message: Message):
     user['bet'] -= 50
     await message.answer(f"📉 Ставка снижена! Новая ставка: {user['bet']} коинов")
 
-# Бонус каждый час (500 коинов)
+# Обработка кнопки часового бонуса
 @dp.message(F.text == "⏱ Часовой бонус")
 async def hourly_bonus(message: Message):
     user_id = message.from_user.id
@@ -99,14 +94,14 @@ async def hourly_bonus(message: Message):
     
     if current_time - bonus_timers[user_id]["hourly"] < 3600:
         left = int(3600 - (current_time - bonus_timers[user_id]["hourly"]))
-        await message.answer(f"⏳ Вы уже забирали часовой бонус! Подождите еще {left // 60} мин. {left % 60} сек.")
+        await message.answer(f"⏳ Рано! Подождите еще {left // 60} мин. {left % 60} сек.")
         return
         
     user["balance"] += 500
     bonus_timers[user_id]["hourly"] = current_time
-    await message.answer(f"🎉 Вы получили часовой бонус: +500 коинов!\n💰 Баланс: {user['balance']} коинов.")
+    await message.answer(f"🎉 Вы получили +500 коинов!\n💰 Баланс: {user['balance']} коинов.")
 
-# Бонус каждые 24 часа (5000 коинов)
+# Обработка кнопки дневного бонуса
 @dp.message(F.text == "📅 Дневной бонус")
 async def daily_bonus(message: Message):
     user_id = message.from_user.id
@@ -115,53 +110,46 @@ async def daily_bonus(message: Message):
     
     if current_time - bonus_timers[user_id]["daily"] < 86400:
         left = int(86400 - (current_time - bonus_timers[user_id]["daily"]))
-        await message.answer(f"⏳ Вы уже забирали дневной бонус! Подождите еще {left // 3600} ч. {(left % 3600) // 60} мин.")
+        await message.answer(f"⏳ Рано! Подождите еще {left // 3600} ч. {(left % 3600) // 60} мин.")
         return
         
     user["balance"] += 5000
     bonus_timers[user_id]["daily"] = current_time
-    await message.answer(f"🎉 Вы получили ежедневный бонус: +5000 коинов!\n💰 Баланс: {user['balance']} коинов.")
+    await message.answer(f"🎉 Вы получили +5000 коинов!\n💰 Баланс: {user['balance']} коинов.")
 
-# Функция перевода денег в чатах через ответ на сообщение (Реплика)
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith("перевод"))
 async def transfer_money(message: Message):
     if not message.reply_to_message:
-        await message.answer("⚠️ Эта команда работает только как ответ на сообщение человека, которому вы хотите перевести коины!")
+        await message.answer("⚠️ Команда работает как ответ на сообщение друга!")
         return
         
     from_user_id = message.from_user.id
     to_user_id = message.reply_to_message.from_user.id
     
     if from_user_id == to_user_id:
-        await message.answer("❌ Вы не можете перевести коины самому себе!")
+        await message.answer("❌ Нельзя переводить себе!")
         return
         
     parts = message.text.split()
     if len(parts) < 2 or not parts[1].isdigit():
-        await message.answer("✍️ Укажите сумму правильно. Пример: `Перевод 500`")
+        await message.answer("✍️ Пример: `Перевод 500`")
         return
         
     amount = int(parts[1])
     if amount <= 0:
-        await message.answer("⚠️ Сумма перевода должна быть больше нуля!")
+        await message.answer("⚠️ Сумма должна быть больше 0!")
         return
         
     sender = get_user_data(from_user_id, message.from_user.username)
     receiver = get_user_data(to_user_id, message.reply_to_message.from_user.username)
     
     if sender["balance"] < amount:
-        await message.answer("❌ У вас недостаточно коинов для перевода!")
+        await message.answer("❌ Недостаточно коинов!")
         return
         
     sender["balance"] -= amount
     receiver["balance"] += amount
-    
-    await message.answer(
-        f"💸 Юзер *{message.from_user.first_name}* перевёл *{amount}* коинов "
-        f"юзеру *{message.reply_to_message.from_user.first_name}*!\n"
-        f"💰 Ваш остаток: {sender['balance']} коинов.",
-        parse_mode="Markdown"
-    )
+    await message.answer(f"💸 Переведено {amount} коинов юзеру {message.reply_to_message.from_user.first_name}!")
 
 @dp.message(F.text == "🎁 Промокод")
 async def enter_promo_request(message: Message, state: FSMContext):
@@ -175,29 +163,27 @@ async def process_promo(message: Message, state: FSMContext):
     promo_text = message.text.strip().upper()
 
     if promo_text not in PROMO_CODES:
-        await message.answer("❌ Такого промокода не существует! Попробуйте еще раз или нажмите другую кнопку.")
+        await message.answer("❌ Такого промокода нет!")
         return
 
     if promo_text in used_promos_db[user_id]:
-        await message.answer("⚠️ Вы уже активировали этот промокод ранее!")
+        await message.answer("⚠️ Вы уже активировали его!")
         await state.clear()
         return
 
     bonus = PROMO_CODES[promo_text]
     user['balance'] += bonus
     used_promos_db[user_id].append(promo_text)
-    
-    await message.answer(f"🎉 Промокод успешно активирован!\n➕ Вам начислено: {bonus} коинов.\n💰 Новый баланс: {user['balance']} коинов.")
+    await message.answer(f"🎉 Активировано! +{bonus} коинов. Баланс: {user['balance']}")
     await state.clear()
 
-# Обновленная игра: Рандомный множитель выигрыша!
 async def play_game(message: Message, emoji: str, win_values: list):
     user_id = message.from_user.id
     user = get_user_data(user_id, message.from_user.username)
     bet = user['bet']
 
     if user['balance'] < bet:
-        await message.answer("❌ У вас недостаточно коинов для этой ставки! Снизьте ставку или подождите бонуса.")
+        await message.answer("❌ Недостаточно коинов!")
         return
 
     msg = await message.answer_dice(emoji=emoji)
@@ -205,35 +191,23 @@ async def play_game(message: Message, emoji: str, win_values: list):
     await asyncio.sleep(4)
 
     if value in win_values:
-        # Генерируем случайный коэффициент выигрыша от х1.5 до х5.0
         multiplier = round(random.uniform(1.5, 5.0), 1)
         win_amount = int(bet * multiplier)
-        
         user['balance'] += win_amount
-        await message.answer(
-            f"🎉 Вы выиграли! Выпало значение: {value}\n"
-            f"🔥 Рандомный множитель: **x{multiplier}**\n"
-            f"➕ Получено: {win_amount} коинов.\n"
-            f"💰 Баланс: {user['balance']} коинов.",
-            parse_mode="Markdown"
-        )
+        await message.answer(f"🎉 Победа! Множитель: x{multiplier}\n➕ Получено: {win_amount}\n💰 Баланс: {user['balance']}")
     else:
         user['balance'] -= bet
-        if user['balance'] < 0:
-            user['balance'] = 0
-        await message.answer(f"😢 Вы проиграли! Выпало значение: {value}\n➖ Потеряно: {bet} коинов.\n💰 Баланс: {user['balance']} коинов.")
+        if user['balance'] < 0: user['balance'] = 0
+        await message.answer(f"😢 Проигрыш! Выпало: {value}\n➖ Потеряно: {bet}\n💰 Баланс: {user['balance']}")
 
 @dp.message(F.text == "🎰 Рулетка")
-async def play_slots(message: Message):
-    await play_game(message, emoji="🎰", win_values=[1, 22, 43, 64])
+async def play_slots(message: Message): await play_game(message, emoji="🎰", win_values=[1, 22, 43, 64])
 
 @dp.message(F.text == "⚽ Футбол")
-async def play_football(message: Message):
-    await play_game(message, emoji="⚽", win_values=[3, 4, 5])
+async def play_football(message: Message): await play_game(message, emoji="⚽", win_values=[3, 4, 5])
 
 @dp.message(F.text == "🎯 Дартс")
-async def play_darts(message: Message):
-    await play_game(message, emoji="🎯", win_values=[6])
+async def play_darts(message: Message): await play_game(message, emoji="🎯", win_values=[6])
 
 async def main():
     print("Бот успешно запущен...")
@@ -241,4 +215,5 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
 
