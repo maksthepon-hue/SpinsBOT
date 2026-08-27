@@ -3,6 +3,7 @@ import random
 import time
 import os
 import threading
+import sqlite3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
@@ -24,16 +25,42 @@ def run_web_server():
     server.serve_forever()
 # -----------------------------------------------
 
-TOKEN = '8787908421:AAFEVIkl157AYeUGxGqSsEaCl8WSKJeMEao'  # Сюда ваш токен от @BotFather
+# --- РАБОТА С БАЗОЙ ДАННЫХ SQLITE ---
+DB_FILE = "casino_base.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    # Таблица пользователей
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            balance INTEGER DEFAULT 1000,
+            bet INTEGER DEFAULT 100,
+            last_hourly INTEGER DEFAULT 0,
+            last_daily INTEGER DEFAULT 0
+        )
+    """)
+    # Таблица использованных промокодов
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS used_promos (
+            user_id INTEGER,
+            promo TEXT,
+            PRIMARY KEY (user_id, promo)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+# -----------------------------------------------
+
+TOKEN = '8787908421:AAFEVIkl157AYeUGxGqSsEaCl8WSKJeMEao'  # Сюда твой токен от @BotFather
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-users_db = {}
-used_promos_db = {}
-bonus_timers = {}
-
-# Словари для антиспама и викторины
 anti_spam = {} 
 quiz_current = {"question": None, "answer": None, "reward": 0, "active": False}
 
@@ -47,13 +74,11 @@ PROMO_CODES = {
 class PromoStates(StatesGroup):
     waiting_for_promo = State()
 
-# Безопасный пинг пользователя (по username или по имени)
 def get_ping(message: Message) -> str:
     if message.from_user.username:
         return f"@{message.from_user.username}"
     return f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
 
-# Жесткая проверка на спам (КД 2 секунды)
 def is_spamming(user_id: int) -> bool:
     current_time = time.time()
     if user_id in anti_spam:
@@ -63,16 +88,47 @@ def is_spamming(user_id: int) -> bool:
     anti_spam[user_id] = current_time
     return False
 
-def get_user_data(user_id: int, username: str = None):
-    if user_id not in users_db:
-        users_db[user_id] = {"balance": 1000, "bet": 100, "username": username}
-    if username and users_db[user_id]["username"] != username:
-        users_db[user_id]["username"] = username
-    if user_id not in used_promos_db:
-        used_promos_db[user_id] = []
-    if user_id not in bonus_timers:
-        bonus_timers[user_id] = {"hourly": 0, "daily": 0}
-    return users_db[user_id]
+# Функции быстрого получения и обновления данных в БД
+def db_get_user(user_id: int, username: str = None):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance, bet, last_hourly, last_daily FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT INTO users (user_id, username) VALUES (?, ?)", (user_id, username))
+        conn.commit()
+        row = (1000, 100, 0, 0)
+    elif username:
+        cursor.execute("UPDATE users SET username = ? WHERE user_id = ?", (username, user_id))
+        conn.commit()
+    conn.close()
+    return {"balance": row[0], "bet": row[1], "last_hourly": row[2], "last_daily": row[3]}
+
+def db_update_user(user_id: int, balance: int, bet: int, last_hourly: int, last_daily: int):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE users 
+        SET balance = ?, bet = ?, last_hourly = ?, last_daily = ? 
+        WHERE user_id = ?
+    """, (balance, bet, last_hourly, last_daily, user_id))
+    conn.commit()
+    conn.close()
+
+def db_check_promo(user_id: int, promo: str) -> bool:
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM used_promos WHERE user_id = ? AND promo = ?", (user_id, promo))
+    res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+def db_use_promo(user_id: int, promo: str):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO used_promos (user_id, promo) VALUES (?, ?)", (user_id, promo))
+    conn.commit()
+    conn.close()
 
 def get_keyboard():
     kb = [
@@ -83,9 +139,8 @@ def get_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
-# Функция генерации примера (вызывается случайно при действиях игроков)
 async def try_trigger_quiz(message: Message):
-    if quiz_current["active"] or random.random() > 0.3:  # Шанс 30% при каждом клике
+    if quiz_current["active"] or random.random() > 0.3:
         return
     num1 = random.randint(10, 99)
     num2 = random.randint(10, 99)
@@ -108,10 +163,10 @@ async def start_cmd(message: Message, state: FSMContext):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
     await state.clear()
-    user = get_user_data(message.from_user.id, message.from_user.username)
+    user = db_get_user(message.from_user.id, message.from_user.username)
     await message.answer(
-        f"👋 Привет, {get_ping(message)}!\nБот работает 24/7. Включен антиспам и пинги игроков!\n\n"
-        f"💰 Твой баланс: {user['balance']} коинов.\n💵 Ставка: {user['bet']} коинов.",
+        f"👋 Привет, {get_ping(message)}!\nБот работает 24/7. Включена база данных, антиспам и пинги!\n\n"
+        f"💰 Твой реальный баланс: *{user['balance']}* коинов.\n💵 Ставка: *{user['bet']}* коинов.",
         reply_markup=get_keyboard(),
         parse_mode="Markdown"
     )
@@ -121,7 +176,7 @@ async def show_balance(message: Message):
     if is_spamming(message.from_user.id):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
-    user = get_user_data(message.from_user.id, message.from_user.username)
+    user = db_get_user(message.from_user.id, message.from_user.username)
     await message.answer(f"💳 {get_ping(message)}, твой баланс: *{user['balance']}* коинов\n💵 Ставка: *{user['bet']}* коинов", parse_mode="Markdown")
     await try_trigger_quiz(message)
 
@@ -130,8 +185,9 @@ async def raise_bet(message: Message):
     if is_spamming(message.from_user.id):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
-    user = get_user_data(message.from_user.id, message.from_user.username)
+    user = db_get_user(message.from_user.id, message.from_user.username)
     user['bet'] += 50
+    db_update_user(message.from_user.id, user['balance'], user['bet'], user['last_hourly'], user['last_daily'])
     await message.answer(f"📈 {get_ping(message)}, ставка увеличена! Новая ставка: *{user['bet']}* коинов", parse_mode="Markdown")
 
 @dp.message(F.text == "➖ Снизить ставку")
@@ -139,11 +195,12 @@ async def lower_bet(message: Message):
     if is_spamming(message.from_user.id):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
-    user = get_user_data(message.from_user.id, message.from_user.username)
+    user = db_get_user(message.from_user.id, message.from_user.username)
     if user['bet'] <= 50:
         await message.answer(f"⚠️ {get_ping(message)}, минимальная ставка — 50 коинов!", parse_mode="Markdown")
         return
     user['bet'] -= 50
+    db_update_user(message.from_user.id, user['balance'], user['bet'], user['last_hourly'], user['last_daily'])
     await message.answer(f"📉 {get_ping(message)}, ставка снижена! Новая ставка: *{user['bet']}* коинов", parse_mode="Markdown")
 
 @dp.message(F.text == "⏱ Часовой бонус")
@@ -152,14 +209,14 @@ async def hourly_bonus(message: Message):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
     user_id = message.from_user.id
-    user = get_user_data(user_id, message.from_user.username)
-    current_time = time.time()
-    if current_time - bonus_timers[user_id]["hourly"] < 3600:
-        left = int(3600 - (current_time - bonus_timers[user_id]["hourly"]))
+    user = db_get_user(user_id, message.from_user.username)
+    current_time = int(time.time())
+    if current_time - user["last_hourly"] < 3600:
+        left = 3600 - (current_time - user["last_hourly"])
         await message.answer(f"⏳ {get_ping(message)}, рано! Подожди еще {left // 60} мин. {left % 60} сек.", parse_mode="Markdown")
         return
     user["balance"] += 500
-    bonus_timers[user_id]["hourly"] = current_time
+    db_update_user(user_id, user["balance"], user["bet"], current_time, user["last_daily"])
     await message.answer(f"🎉 {get_ping(message)}, ты получил +500 коинов!\n💰 Баланс: *{user['balance']}* коинов.", parse_mode="Markdown")
 
 @dp.message(F.text == "📅 Дневной бонус")
@@ -168,14 +225,14 @@ async def daily_bonus(message: Message):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
     user_id = message.from_user.id
-    user = get_user_data(user_id, message.from_user.username)
-    current_time = time.time()
-    if current_time - bonus_timers[user_id]["daily"] < 86400:
-        left = int(86400 - (current_time - bonus_timers[user_id]["daily"]))
+    user = db_get_user(user_id, message.from_user.username)
+    current_time = int(time.time())
+    if current_time - user["last_daily"] < 86400:
+        left = 86400 - (current_time - user["last_daily"])
         await message.answer(f"⏳ {get_ping(message)}, рано! Подожди еще {left // 3600} ч. {(left % 3600) // 60} мин.", parse_mode="Markdown")
         return
     user["balance"] += 5000
-    bonus_timers[user_id]["daily"] = current_time
+    db_update_user(user_id, user["balance"], user["bet"], user["last_hourly"], current_time)
     await message.answer(f"🎉 {get_ping(message)}, ты получил +5000 коинов!\n💰 Баланс: *{user['balance']}* коинов.", parse_mode="Markdown")
 
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith("перевод"))
@@ -185,40 +242,3 @@ async def transfer_money(message: Message):
         await message.answer(f"⚠️ {get_ping(message)}, команда работает как ответ на сообщение друга!", parse_mode="Markdown")
         return
     from_user_id = message.from_user.id
-    to_user_id = message.reply_to_message.from_user.id
-    if from_user_id == to_user_id:
-        await message.answer(f"❌ {get_ping(message)}, нельзя переводить коины самому себе!", parse_mode="Markdown")
-        return
-    parts = message.text.split()
-    if len(parts) < 2 or not parts.isdigit():
-        await message.answer(f"✍️ {get_ping(message)}, пример команды: `Перевод 500`", parse_mode="Markdown")
-        return
-    amount = int(parts)
-    if amount <= 0:
-        await message.answer(f"⚠️ {get_ping(message)}, сумма должна быть больше 0!", parse_mode="Markdown")
-        return
-    sender = get_user_data(from_user_id, message.from_user.username)
-    receiver = get_user_data(to_user_id, message.reply_to_message.from_user.username)
-    if sender["balance"] < amount:
-        await message.answer(f"❌ {get_ping(message)}, недостаточно коинов для перевода!", parse_mode="Markdown")
-        return
-    sender["balance"] -= amount
-    receiver["balance"] += amount
-    await message.answer(f"💸 {get_ping(message)} перевел *{amount}* коинов юзеру {get_ping(message.reply_to_message)}!", parse_mode="Markdown")
-
-@dp.message(F.text == "🎁 Промокод")
-async def enter_promo_request(message: Message, state: FSMContext):
-    if is_spamming(message.from_user.id):
-        await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
-        return
-    await message.answer(f"✍️ {get_ping(message)}, введите промокод:", parse_mode="Markdown")
-    await state.set_state(PromoStates.waiting_for_promo)
-
-@dp.message(PromoStates.waiting_for_promo)
-async def process_promo(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    user = get_user_data(user_id, message.from_user.username)
-    promo_text = message.text.strip().upper()
-    if promo_text not in PROMO_CODES:
-        await message.answer(f"❌ {get_ping(message)}, такого промокода нет!", parse_mode="Markdown")
-        return
