@@ -32,9 +32,9 @@ dp = Dispatcher()
 users_db = {}
 used_promos_db = {}
 bonus_timers = {}
-
-# Словари для антиспама и викторины
 anti_spam = {} 
+
+# Переменные для викторины
 quiz_current = {"question": None, "answer": None, "reward": 0, "active": False}
 
 PROMO_CODES = {
@@ -47,19 +47,17 @@ PROMO_CODES = {
 class PromoStates(StatesGroup):
     waiting_for_promo = State()
 
-# Безопасный пинг пользователя (по username или по имени)
 def get_ping(message: Message) -> str:
     if message.from_user.username:
         return f"@{message.from_user.username}"
     return f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
 
-# Проверка на спам (КД 2 секунды)
+# Жесткая проверка на спам (КД 2 секунды)
 def is_spamming(user_id: int) -> bool:
     current_time = time.time()
     if user_id in anti_spam:
         last_time = anti_spam[user_id]
         if current_time - last_time < 2.0:
-            anti_spam[user_id] = current_time
             return True
     anti_spam[user_id] = current_time
     return False
@@ -84,40 +82,24 @@ def get_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
-# Автоматическая генерация примеров в фоне
-async def quiz_loop():
-    await asyncio.sleep(10)  # Даем боту время запуститься
-    while True:
-        # Случайное время между примерами (от 3 до 7 минут)
-        await asyncio.sleep(random.randint(180, 420))
-        
-        if quiz_current["active"]:
-            continue
-            
-        num1 = random.randint(10, 99)
-        num2 = random.randint(10, 99)
-        operation = random.choice(["+", "-"])
-        
-        if operation == "+":
-            ans = num1 + num2
-        else:
-            ans = num1 - num2
-            
-        quiz_current["question"] = f"{num1} {operation} {num2}"
-        quiz_current["answer"] = str(ans)
-        quiz_current["reward"] = random.randint(300, 1500)
-        quiz_current["active"] = True
-        
-        for u_id in list(users_db.keys()):
-            try:
-                await bot.send_message(
-                    chat_id=u_id,
-                    text=f"🔔 *БЫСТРЫЙ ИВЕНТ!*\n\nКто первый решит пример, получит куш!\n📊 Пример: *{quiz_current['question']} = ?*\n💰 Награда: *{quiz_current['reward']}* коинов!\n\nНапишите просто число-ответ в чат!",
-                    parse_mode="Markdown"
-                )
-                break
-            except Exception:
-                pass
+# Функция генерации примера (вызывается случайно при действиях игроков)
+async def try_trigger_quiz(message: Message):
+    if quiz_current["active"] or random.random() > 0.3:  # Шанс 30% при каждом действии
+        return
+    num1 = random.randint(10, 99)
+    num2 = random.randint(10, 99)
+    operation = random.choice(["+", "-"])
+    ans = num1 + num2 if operation == "+" else num1 - num2
+    
+    quiz_current["question"] = f"{num1} {operation} {num2}"
+    quiz_current["answer"] = str(ans)
+    quiz_current["reward"] = random.randint(300, 1500)
+    quiz_current["active"] = True
+    
+    await message.answer(
+        f"🔔 *БЫСТРЫЙ ИВЕНТ ДЛЯ ВСЕХ!*\n\nКто первый решит пример, получит куш!\n📊 Пример: *{quiz_current['question']} = ?*\n💰 Награда: *{quiz_current['reward']}* коинов!\n\nНапишите просто число-ответ в чат!",
+        parse_mode="Markdown"
+    )
 
 @dp.message(Command("start"))
 async def start_cmd(message: Message, state: FSMContext):
@@ -125,11 +107,9 @@ async def start_cmd(message: Message, state: FSMContext):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
     await state.clear()
-    user_id = message.from_user.id
-    user = get_user_data(user_id, message.from_user.username)
-    
+    user = get_user_data(message.from_user.id, message.from_user.username)
     await message.answer(
-        f"👋 Привет, {get_ping(message)}!\nБот полностью обновлен и защищен от багов.\n\n"
+        f"👋 Привет, {get_ping(message)}!\nБот работает 24/7. Включен антиспам и пинги игроков!\n\n"
         f"💰 Твой баланс: {user['balance']} коинов.\n💵 Ставка: {user['bet']} коинов.",
         reply_markup=get_keyboard(),
         parse_mode="Markdown"
@@ -142,6 +122,7 @@ async def show_balance(message: Message):
         return
     user = get_user_data(message.from_user.id, message.from_user.username)
     await message.answer(f"💳 {get_ping(message)}, твой баланс: *{user['balance']}* коинов\n💵 Ставка: *{user['bet']}* коинов", parse_mode="Markdown")
+    await try_trigger_quiz(message)
 
 @dp.message(F.text == "➕ Повысить ставку")
 async def raise_bet(message: Message):
@@ -198,8 +179,7 @@ async def daily_bonus(message: Message):
 
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith("перевод"))
 async def transfer_money(message: Message):
-    if is_spamming(message.from_user.id):
-        return
+    if is_spamming(message.from_user.id): return
     if not message.reply_to_message:
         await message.answer(f"⚠️ {get_ping(message)}, команда работает как ответ на сообщение друга!", parse_mode="Markdown")
         return
@@ -231,3 +211,14 @@ async def enter_promo_request(message: Message, state: FSMContext):
         await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
         return
     await message.answer(f"✍️ {get_ping(message)}, введите промокод:", parse_mode="Markdown")
+    await state.set_state(PromoStates.waiting_for_promo)
+
+@dp.message(PromoStates.waiting_for_promo)
+async def process_promo(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = get_user_data(user_id, message.from_user.username)
+    promo_text = message.text.strip().upper()
+    if promo_text not in PROMO_CODES:
+        await message.answer(f"❌ {get_ping(message)}, такого промокода нет!", parse_mode="Markdown")
+        return
+    if promo_text in used_promos_db[user_id]:
