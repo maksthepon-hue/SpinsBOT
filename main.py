@@ -192,13 +192,12 @@ def handle_text(message):
         
         is_win = False
         if game_type == "roulette":
-            if val in: is_win = True
+            if val == 64: is_win = True
         elif game_type == "darts":
             if val >= 4 and val <= 6: is_win = True
         elif game_type == "football":
             if val >= 3 and val <= 5: is_win = True
         elif game_type == "basketball":
-            # 4 и 5 в кубике баскетбола — это точные попадания мяча в корзину
             if val in: is_win = True
         
         if is_win:
@@ -246,6 +245,9 @@ def handle_text(message):
             return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
         bonus = random.randint(50, 200)
         db["users"][uid]["balance"] += bonus
+        db["users"][uid]["last_hourly"] = now
+        save_db(db)
+
 
 
 
