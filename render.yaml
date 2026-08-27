@@ -1,6 +1,6 @@
 services:
-  - type: worker
-    name: casino-bot
+  - type: web
+    name: casino-free-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
@@ -9,3 +9,4 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+
