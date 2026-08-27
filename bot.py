@@ -5,6 +5,8 @@ import telebot
 from telebot import types
 import psycopg2
 from psycopg2.extras import DictCursor
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtoHj_k"  # Твой токен вшит напрямую
@@ -14,16 +16,31 @@ COOLDOWN_TIME = 2  # Антиспам в секундах
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
 
+# --- ФОНОВЫЙ ВЕБ-СЕРВЕР ДЛЯ ОБХОДА ОГРАНИЧЕНИЙ RENDER ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+    def log_message(self, format, *args):
+        return  # Отключаем лишний спам логов сервера в консоль
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"Фоновый веб-сервер запущен на порту {port}")
+    server.serve_forever()
+
 # --- ПОДКЛЮЧЕНИЕ И ИНИЦИАЛИЗАЦИЯ БД ---
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 def init_db():
-    """Создает таблицы в базе PostgreSQL, если их еще нет"""
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Таблица пользователей
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id VARCHAR(50) PRIMARY KEY,
@@ -35,7 +52,6 @@ def init_db():
         );
     """)
     
-    # Таблица промокодов
     cur.execute("""
         CREATE TABLE IF NOT EXISTS promos (
             code VARCHAR(50) PRIMARY KEY,
@@ -43,13 +59,11 @@ def init_db():
         );
     """)
     
-    # Проверяем, есть ли промокоды, если нет — генерируем 50 штук
     cur.execute("SELECT COUNT(*) FROM promos;")
-    if cur.fetchone()[0] == 0:
+    if cur.fetchone() == 0:
         for i in range(1, 51):
             cur.execute("INSERT INTO promos (code, reward) VALUES (%s, %s);", (f"PROMO-{i}", 500))
             
-    # Таблица временных состояний
     cur.execute("""
         CREATE TABLE IF NOT EXISTS states (
             user_id VARCHAR(50) PRIMARY KEY,
@@ -197,14 +211,13 @@ def handle_text(message):
             conn.close()
             return bot.send_message(message.chat.id, "❌ Недостаточно монет!", reply_markup=get_main_menu())
         
-        # Запуск игры
         cur.execute("UPDATE users SET balance = balance - %s WHERE user_id = %s;", (bet, uid))
         conn.commit()
         
         emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰"}
         msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
         val = msg.dice.value
-        time.sleep(4) # Анимация кубика
+        time.sleep(4)
         
         is_win = False
         if game_type == "roulette":
@@ -257,18 +270,10 @@ def handle_text(message):
         conn.close()
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
-    # Обработка главного меню
     if message.text == "💵 Мой баланс":
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT balance FROM users WHERE user_id = %s;", (uid,))
-        bal = cur.fetchone()[0]
-        cur.close()
-        conn.close()
-        bot.send_message(message.chat.id, f"💰 Твой баланс: *{bal}* монет.", parse_mode="Markdown")
-        
-    elif message.text in ["⚽ Футбол", "🎯 Дартс", "🎰 Рулетка"]:
-        g_names = {"⚽ Футбол": "football", "🎯 Дартс": "darts", "🎰 Рулетка": "roulette"}
-        set_user_state(message.from_user.id, f"bet_{g_names[message.text]}")
+
 
 
