@@ -24,7 +24,7 @@ def run_web_server():
     server.serve_forever()
 # -----------------------------------------------
 
-TOKEN = 'ВАШ_ТОКЕН_БОТА'  # Сюда ваш токен от @BotFather
+TOKEN = '8787908421:AAFEVIkl157AYeUGxGqSsEaCl8WSKJeMEao'  # Сюда ваш токен от @BotFather
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -88,7 +88,7 @@ def get_keyboard():
 async def quiz_loop():
     await asyncio.sleep(10)  # Даем боту время запуститься
     while True:
-        # Случайное время между примерами (от 3 до 7 минут, чтобы не спамило слишком часто)
+        # Случайное время между примерами (от 3 до 7 минут)
         await asyncio.sleep(random.randint(180, 420))
         
         if quiz_current["active"]:
@@ -108,7 +108,6 @@ async def quiz_loop():
         quiz_current["reward"] = random.randint(300, 1500)
         quiz_current["active"] = True
         
-        # Рассылаем пример во все активные чаты, где зарегистрирован хоть один юзер
         for u_id in list(users_db.keys()):
             try:
                 await bot.send_message(
@@ -116,7 +115,7 @@ async def quiz_loop():
                     text=f"🔔 *БЫСТРЫЙ ИВЕНТ!*\n\nКто первый решит пример, получит куш!\n📊 Пример: *{quiz_current['question']} = ?*\n💰 Награда: *{quiz_current['reward']}* коинов!\n\nНапишите просто число-ответ в чат!",
                     parse_mode="Markdown"
                 )
-                break # Отправляем один раз, если это группа — бот отправит в чат
+                break
             except Exception:
                 pass
 
@@ -229,6 +228,9 @@ async def transfer_money(message: Message):
 @dp.message(F.text == "🎁 Промокод")
 async def enter_promo_request(message: Message, state: FSMContext):
     if is_spamming(message.from_user.id):
+        await message.answer(f"⚠️ {get_ping(message)}, НЕ СПАМЬ ИПАТЬ!", parse_mode="Markdown")
+        return
+    await message.answer(f"✍️ {get_ping(message)}, введите промокод:", parse_mode="Markdown")
 
 
 
