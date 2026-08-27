@@ -8,7 +8,7 @@ import threading
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAEb6Z8revRi25aQ91xeNGqUcf3L5s_1i1E"  # Твой токен вшит напрямую
+BOT_TOKEN = "8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtoHj_k"  # Твой токен
 DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
@@ -23,7 +23,6 @@ def home():
     return "Бот работает 24/7!"
 
 def run_flask():
-    # Render автоматически передает нужный порт в переменную PORT, по умолчанию 10000
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
@@ -74,10 +73,11 @@ def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("💵 Мой баланс", "🎫 Промокод")
     markup.row("⚽ Футбол", "🎯 Дартс", "🎰 Рулетка")
+    markup.row("🏀 Баскетбол")
     markup.row("🎁 Ежечасный бонус", "📆 Ежедневный бонус")
     return markup
 
-# --- ОБРАБОТКА КОМАНД И КНОПОК ---
+# --- ОБРАБОТКА КОМАНД СЛЭША ---
 
 @bot.message_handler(commands=['start', 'menu'])
 def cmd_start(message):
@@ -90,28 +90,41 @@ def cmd_start(message):
         f"🎰 ✨ *Добро пожаловать в Казино, {message.from_user.first_name}!* ✨ 🎰\n\n"
         "💰 Тебе начислено 1000 стартовых монет.\n"
         "🎮 Нажимай на кнопки меню снизу, чтобы играть и получать призы!\n\n"
-        "🤝 *Перевод другу в группе:* ответь на его сообщение командой `/pay [сумма]`"
+        "🤝 *Простой перевод в группе:* Ответь на сообщение друга текстом: `дать [сумма]` или `перевод [сумма]`\n"
+        "🤝 *Перевод в личке:* напиши боту команду `/pay [ID игрока] [сумма]`"
     )
     bot.send_message(message.chat.id, welcome, parse_mode="Markdown", reply_markup=get_main_menu())
 
+@bot.message_handler(commands=['id'])
+def cmd_id(message):
+    bot.reply_to(message, f"🆔 Твой Telegram ID: `{message.from_user.id}`", parse_mode="Markdown")
+
 @bot.message_handler(commands=['pay'])
-def cmd_pay(message):
-    if message.chat.type not in ["group", "supergroup"]:
-        return bot.reply_to(message, "❌ Переводы работают только в группах!")
-    if not message.reply_to_message:
-        return bot.reply_to(message, "❌ Ответь этой командой на сообщение того, кому переводишь монеты.")
+def cmd_pay_slash(message):
+    """Перевод по слэш-команде для лички"""
+    if message.chat.type in ["group", "supergroup"]:
+        return bot.reply_to(message, "❌ В группах используй простой ответ на сообщение: `дать [сумма]`")
         
     from_id = str(message.from_user.id)
-    to_id = str(message.reply_to_message.from_user.id)
-    if from_id == to_id: return bot.reply_to(message, "❌ Нельзя переводить себе!")
-    
     text_parts = message.text.split()
-    if len(text_parts) < 2 or not text_parts.isdigit():
-        return bot.reply_to(message, "❌ Укажи сумму числом. Пример: `/pay 100`")
+    
+    if len(text_parts) < 3 or not text_parts[1].isdigit() or not text_parts[2].isdigit():
+        return bot.reply_to(message, "❌ Формат в личке: `/pay [ID игрока] [сумма]`. Узнать ID можно по команде `/id`.")
         
-    amount = int(text_parts)
+    to_id = str(text_parts[1])
+    amount = int(text_parts[2])
+    
+    if from_id == to_id: return bot.reply_to(message, "❌ Нельзя переводить себе!")
+    if to_id not in db["users"]: return bot.reply_to(message, "❌ Этот игрок еще не запускал бота!")
+    
+    process_transfer(message, from_id, to_id, amount, db["users"][to_id]["username"])
+
+# --- ОБЩАЯ ФУНКЦИЯ ДЛЯ ПЕРЕВОДА ДЕНЕГ ---
+def process_transfer(message, from_id, to_id, amount, to_username):
+    if amount <= 0:
+        return bot.reply_to(message, "❌ Сумма должна быть больше 0!")
+        
     init_user(from_id, message.from_user.username)
-    init_user(to_id, message.reply_to_message.from_user.username)
     
     if db["users"][from_id]["balance"] < amount:
         return bot.reply_to(message, "❌ Недостаточно монет на балансе!")
@@ -119,20 +132,44 @@ def cmd_pay(message):
     db["users"][from_id]["balance"] -= amount
     db["users"][to_id]["balance"] += amount
     save_db(db)
-    bot.send_message(message.chat.id, f"✅ Игрок @{message.from_user.username} перевел {amount} монет игроку @{message.reply_to_message.from_user.username}!")
+    
+    bot.send_message(message.chat.id, f"✅ Игрок @{message.from_user.username} успешно перевел {amount} монет пользователю @{to_username}!")
 
-# --- ТЕКСТОВЫЕ КНОПКИ ---
+# --- ОБРАБОТКА ТЕКСТА (Кнопки, Игры и Текстовые Переводы) ---
 
 @bot.message_handler(func=lambda msg: True)
 def handle_text(message):
     uid = str(message.from_user.id)
     init_user(message.from_user.id, message.from_user.username)
     
+    # --- ЛОГИКА ТЕКСТОВЫХ ПЕРЕВОДОВ В ГРУППАХ (дать 100, перевод 50) ---
+    if message.chat.type in ["group", "supergroup"] and message.reply_to_message:
+        text_lower = message.text.lower().strip()
+        trigger_words = ["дать", "перевод", "pay", "подарить"]
+        
+        for word in trigger_words:
+            if text_lower.startswith(word):
+                amount_str = text_lower.replace(word, "").strip()
+                if amount_str.isdigit():
+                    if check_spam(message.from_user.id): return
+                    
+                    to_id = str(message.reply_to_message.from_user.id)
+                    if uid == to_id: 
+                        return bot.reply_to(message, "❌ Нельзя переводить монеты самому себе!")
+                        
+                    amount = int(amount_str)
+                    to_username = message.reply_to_message.from_user.username or "Игрок"
+                    init_user(to_id, to_username)
+                    
+                    process_transfer(message, uid, to_id, amount, to_username)
+                    return
+
     if check_spam(message.from_user.id):
-        return bot.send_message(message.chat.id, "⚠️ Не спамь! Подождите секунду.")
+        return bot.send_message(message.chat.id, "⚠️ Не спамь! Подожди секунду.")
 
     state = db["states"].get(uid)
     
+    # Обработка ввода ставки
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
         db["states"][uid] = None
@@ -145,33 +182,36 @@ def handle_text(message):
         if bet <= 0: return bot.send_message(message.chat.id, "❌ Ставка должна быть больше 0!", reply_markup=get_main_menu())
         if db["users"][uid]["balance"] < bet: return bot.send_message(message.chat.id, "❌ Недостаточно монет!", reply_markup=get_main_menu())
         
-        # Запуск игры
         db["users"][uid]["balance"] -= bet
         save_db(db)
         
-        emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰"}
+        emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰", "basketball": "🏀"}
         msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
         val = msg.dice.value
         time.sleep(4)
         
         is_win = False
         if game_type == "roulette":
-            if val == 1 or val == 22 or val == 43 or val == 64: is_win = True
+            if val in: is_win = True
         elif game_type == "darts":
             if val >= 4 and val <= 6: is_win = True
         elif game_type == "football":
             if val >= 3 and val <= 5: is_win = True
+        elif game_type == "basketball":
+            # 4 и 5 в кубике баскетбола — это точные попадания мяча в корзину
+            if val in: is_win = True
         
         if is_win:
             multiplier = round(random.uniform(1.5, 5.0), 1)
             win_amount = int(bet * multiplier)
             db["users"][uid]["balance"] += win_amount
             save_db(db)
-            bot.reply_to(message, f"🎉 *ПОБЕДА!* 🎉\n🔥 Выпало: {val}\n📈 Множитель: x{multiplier}\n💰 Случайный выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
+            bot.reply_to(message, f"🎉 *ПОБЕДА В {game_type.upper()}!* 🎉\n🔥 Выпало: {val}\n📈 Множитель: x{multiplier}\n💰 Выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
         else:
             bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
         return
 
+    # Обработка ожидания промокода
     if state == "promo_waiting":
         db["states"][uid] = None
         save_db(db)
@@ -185,11 +225,12 @@ def handle_text(message):
         save_db(db)
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
+    # Главное меню
     if message.text == "💵 Мой баланс":
         bot.send_message(message.chat.id, f"💰 Твой баланс: *{db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
         
-    elif message.text in ["⚽ Футбол", "🎯 Дартс", "🎰 Рулетка"]:
-        g_names = {"⚽ Футбол": "football", "🎯 Дартс": "darts", "🎰 Рулетка": "roulette"}
+    elif message.text in ["⚽ Футбол", "🎯 Дартс", "🎰 Рулетка", "🏀 Баскетбол"]:
+        g_names = {"⚽ Футбол": "football", "🎯 Дартс": "darts", "🎰 Рулетка": "roulette", "🏀 Баскетбол": "basketball"}
         db["states"][uid] = f"bet_{g_names[message.text]}"
         save_db(db)
         bot.send_message(message.chat.id, f"Выбрана игра: {message.text}\n✏️ Введи сумму ставки числом:")
@@ -205,29 +246,7 @@ def handle_text(message):
             return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
         bonus = random.randint(50, 200)
         db["users"][uid]["balance"] += bonus
-        db["users"][uid]["last_hourly"] = now
-        save_db(db)
-        bot.send_message(message.chat.id, f"🎁 Получен часовой бонус: +{bonus} монет!")
-        
-    elif message.text == "📆 Ежедневный бонус":
-        now = int(time.time())
-        if now - db["users"][uid]["last_daily"] < 86400:
-            return bot.send_message(message.chat.id, f"⏳ Приходи позже! Через {(86400 - (now - db['users'][uid]['last_daily'])) // 3600} ч.")
-        bonus = random.randint(300, 1000)
-        db["users"][uid]["balance"] += bonus
-        db["users"][uid]["last_daily"] = now
-        save_db(db)
-        bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-# --- ЗАПУСК ---
-if __name__ == "__main__":
-    # 1. Запуск веб-сервера Flask в отдельном фоновом потоке
-    threading.Thread(target=run_flask, daemon=True).start()
-    
-    # 2. Очистка вебхуков и запуск бесконечного пуллинга бота
-    bot.remove_webhook()
-    print("Бот успешно запущен на сервере Render!")
-    bot.infinity_polling(none_stop=True)
 
 
 
