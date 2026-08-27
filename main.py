@@ -6,7 +6,6 @@ import telebot
 from telebot import types
 import threading
 from flask import Flask
-from werkzeug.serving import make_server
 
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой рабочий токен
@@ -24,12 +23,11 @@ def home():
     return "Бот работает 24/7!"
 
 def run_flask_forever():
-    """Запуск полноценного асинхронного веб-сервера, который мгновенно отвечает Render"""
+    """Запуск многопоточного Flask-сервера для мгновенного ответа Render"""
     port = int(os.environ.get("PORT", 10000))
-    # Использование многопоточного WSGI-сервера предотвращает зависание проверок Render
-    server = make_server('0.0.0.0', port, app, threaded=True)
-    print(f"Фоновый WSGI-сервер успешно запущен на порту {port}")
-    server.serve_forever()
+    print(f"Фоновый Flask-сервер запускается на порту {port}...")
+    # threaded=True включает асинхронную обработку запросов Render
+    app.run(host="0.0.0.0", port=port, threaded=True)
 
 # --- БАЗА ДАННЫХ (JSON-файл) ---
 def load_db():
@@ -78,7 +76,7 @@ def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("💵 Мой баланс", "🎫 Промокод")
     markup.row("⚽ Футбол", "🎯 Дартс", "🎰 Рулетка")
-    markup.row("🏀 Basketball")
+    markup.row("🏀 Баскетбол")
     markup.row("🎁 Ежечасный бонус", "📆 Ежедневный бонус")
     return markup
 
@@ -177,6 +175,7 @@ def handle_text(message):
 
     state = db["states"].get(uid)
     
+    # Обработка ввода ставки
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
         db["states"][uid] = None
@@ -217,6 +216,7 @@ def handle_text(message):
             bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
         return
 
+    # Обработка ожидания промокода
     if state == "promo_waiting":
         db["states"][uid] = None
         save_db(db)
@@ -230,6 +230,7 @@ def handle_text(message):
         save_db(db)
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
+    # Главное меню
     if message.text == "💵 Мой баланс":
         bot.send_message(message.chat.id, f"💰 Твой баланс: *{db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
         
@@ -247,6 +248,7 @@ def handle_text(message):
     elif message.text == "🎁 Ежечасный бонус":
         now = int(time.time())
         if now - db["users"][uid]["last_hourly"] < 3600:
+            return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
 
 
         
