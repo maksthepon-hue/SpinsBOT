@@ -31,7 +31,6 @@ DB_FILE = "casino_base.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # Таблица пользователей
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -42,7 +41,6 @@ def init_db():
             last_daily INTEGER DEFAULT 0
         )
     """)
-    # Таблица использованных промокодов
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS used_promos (
             user_id INTEGER,
@@ -88,7 +86,6 @@ def is_spamming(user_id: int) -> bool:
     anti_spam[user_id] = current_time
     return False
 
-# Функции быстрого получения и обновления данных в БД
 def db_get_user(user_id: int, username: str = None):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -165,8 +162,9 @@ async def start_cmd(message: Message, state: FSMContext):
     await state.clear()
     user = db_get_user(message.from_user.id, message.from_user.username)
     await message.answer(
-        f"👋 Привет, {get_ping(message)}!\nБот работает 24/7. Включена база данных, антиспам и пинги!\n\n"
-        f"💰 Твой реальный баланс: *{user['balance']}* коинов.\n💵 Ставка: *{user['bet']}* коинов.",
+        f"👋 Привет, {get_ping(message)}!\nБот работает 24/7.\n\n"
+        f"💰 Твой реальный баланс: *{user['balance']}* коинов.\n"
+        f"💵 Текущая ставка: *{user['bet']}* коинов.",
         reply_markup=get_keyboard(),
         parse_mode="Markdown"
     )
@@ -242,3 +240,5 @@ async def transfer_money(message: Message):
         await message.answer(f"⚠️ {get_ping(message)}, команда работает как ответ на сообщение друга!", parse_mode="Markdown")
         return
     from_user_id = message.from_user.id
+    to_user_id = message.reply_to_message.from_user.id
+    if from_user_id == to_user_id:
