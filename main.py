@@ -10,7 +10,7 @@ from flask import Flask
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAEJFomq7ZCanLInbugUfQtuyjJNQtoHj_k"  # Твой токен
 DB_FILE = "casino_db.json"
-COOLDOWN_TIME = 2  # Anti-spam in seconds
+COOLDOWN_TIME = 2  # Антиспам в секундах
 
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
@@ -165,7 +165,7 @@ def handle_text(message):
                     return
 
     if check_spam(message.from_user.id):
-        return bot.send_message(message.chat.id, "⚠️ Не спамь! Подожди секунду.")
+        return bot.send_message(message.chat.id, "⚠️ Не спамь! Подождите секунду.")
 
     state = db["states"].get(uid)
     
@@ -198,7 +198,7 @@ def handle_text(message):
         elif game_type == "football":
             if val >= 3 and val <= 5: is_win = True
         elif game_type == "basketball":
-            if val in: is_win = True  # Исправлено! 4 и 5 — чистое попадание в кольцо
+            if val == 4 or val == 5: is_win = True  # Исправлено на 100%! Жесткая и надежная проверка без ин-команд
         
         if is_win:
             multiplier = round(random.uniform(1.5, 5.0), 1)
@@ -245,7 +245,7 @@ def handle_text(message):
             return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
         bonus = random.randint(50, 200)
         db["users"][uid]["balance"] += bonus
-        db["users"][uid]["last_hourly"] = now
+
 
 
 
