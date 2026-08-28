@@ -193,19 +193,23 @@ def handle_text(message):
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
 def run_bot_polling():
-    """Чистый запуск пуллинга напрямую, полностью очищая застрявшие вебхуки"""
+    """ЖЕСТКИЙ СБРОС ВЕБХУКОВ ИЗ СЕРВЕРА RENDER И ЗАПУСК БОТА"""
     try:
+        # Сервер отправляет принудительный запрос на удаление вебхука из Telegram API
+        requests.get(f"https://telegram.org{BOT_TOKEN}/deleteWebhook", timeout=5)
+        time.sleep(2)
         bot.remove_webhook()
         time.sleep(1)
-        print("Телеграм-бот успешно запущен в режиме прямого пуллинга!")
+        print("Застрявший вебхук стерт сервером! Бот запущен в чистый пуллинг!")
         bot.infinity_polling(none_stop=True, skip_pending=True)
     except Exception as e:
-        print(f"Ошибка пуллинга: {e}")
+        print(f"Ошибка старта: {e}")
 
 if __name__ == "__main__":
-    # 1. Запускаем пуллинг бота в отдельном фоновом потоке
+    # 1. Запускаем чистку вебхуков и старт бота в фоновом потоке
     threading.Thread(target=run_bot_polling, daemon=True).start()
     
-    # 2. Основным процессом держим Flask для прохождения тестов Render
+    # 2. Основным процессом держим Flask для Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
