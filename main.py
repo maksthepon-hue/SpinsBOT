@@ -8,7 +8,7 @@ import requests
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAEJIesZK2nPYwPFjJPrgzGiJCcYjwI3fFE"  # Твой новый чистый токен
+BOT_TOKEN = "8958818419:AAFFPkC3fw7fjuN1gMvsdXrZ7GHWL4bhmss"  # Твой новый чистый токен
 COOLDOWN_TIME = 2
 
 # Твой уникальный ключ для вечной базы в интернете
@@ -43,7 +43,7 @@ def save_db():
     with db_lock:
         try:
             requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
-            print("Балансы и таймеры успешно зафиксированы in облаке!")
+            print("Балансы и таймеры успешно зафиксированы в облаке!")
         except:
             print("Временный сбой сети при сохранении")
 
@@ -177,7 +177,6 @@ def handle_text(message):
             local_db["users"][uid]["state"] = None
         code = message.text.strip().upper()
         
-        # Исправлено: Простая и надежная генерация 50 промокодов прямо на ходу
         valid_promos = [f"PROMO-{i}" for i in range(1, 51)]
         if code not in valid_promos: 
             return bot.send_message(message.chat.id, "❌ Такого промокода нет!", reply_markup=get_main_menu())
@@ -236,14 +235,11 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
+# --- ИСПРАВЛЕННЫЙ ЛЕГКИЙ И СТАБИЛЬНЫЙ ЗАПУСК ---
 if __name__ == "__main__":
+    # 1. Запускаем Flask в фоне
     threading.Thread(target=run_flask, daemon=True).start()
-    bot.remove_webhook()
-
-
-
-
-
+    
 
 
 
