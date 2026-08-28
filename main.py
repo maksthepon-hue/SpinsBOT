@@ -9,7 +9,7 @@ from flask import Flask
 
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAE-wKE-Cx7vzITNgcyyXc4oHcqtLG4elgQ"  # Твой токен
-COOLDOWN_TIME = 2
+COOLDOWN_TIME = 1
 
 # Твой уникальный ключ для вечной базы в интернете
 CLOUD_STORAGE_URL = "https://onrender.com"
@@ -136,7 +136,7 @@ def handle_text(message):
         
         bet = int(message.text)
         if bet <= 0 or local_db["users"][uid]["balance"] < bet:
-            return bot.send_message(message.chat.id, "❌ Некорректная ставка!", reply_markup=get_main_menu())
+            return bot.send_message(message.chat.id, "❌ Некорректная ставка или мало монет!", reply_markup=get_main_menu())
         
         with db_lock:
             local_db["users"][uid]["balance"] -= bet
@@ -145,7 +145,6 @@ def handle_text(message):
         emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰", "basketball": "🏀"}
         msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
         val = msg.dice.value
-        time.sleep(4)
         
         is_win = False
         if game_type == "roulette" and val == 64: is_win = True
@@ -158,9 +157,9 @@ def handle_text(message):
                 multiplier = round(random.uniform(1.5, 5.0), 1)
                 win_amount = int(bet * multiplier)
                 local_db["users"][uid]["balance"] += win_amount
-                bot.reply_to(message, f"🎉 *ПОБЕДА!* Выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
+                bot.reply_to(message, f"🎉 *ПОБЕДА В {game_type.upper()}!* 🎉\n🔥 Выпало: {val}\n📈 Множитель: x{multiplier}\n💰 Выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
             else:
-                bot.reply_to(message, f"😢 *ПРОИГРЫШ* Выпало: {val}")
+                bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
             threading.Thread(target=save_db, daemon=True).start()
         return
 
@@ -217,14 +216,12 @@ def handle_text(message):
 
 def run_bot_polling():
     """Запуск бота в фоне после того, как Flask займет порт"""
-    time.sleep(3)
+    time.sleep(2)
     bot.remove_webhook()
     bot.infinity_polling(none_stop=True)
 
 if __name__ == "__main__":
-    # 1. Запускаем Телеграм-бота в фоновом потоке
     threading.Thread(target=run_bot_polling, daemon=True).start()
-    
-    # 2. Основным процессом держим Flask на порту 10000 для Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
