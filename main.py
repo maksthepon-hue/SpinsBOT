@@ -5,7 +5,6 @@ import telebot
 from telebot import types
 import threading
 import requests
-from flask import Flask
 
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAF4PoxE8jAr-QlmfiFZp4lhneXYjM4Hdf0"  # Твой токен
@@ -16,13 +15,8 @@ CLOUD_STORAGE_URL = "https://onrender.com"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
-app = Flask(__name__)
 local_db = {"users": {}}
 db_lock = threading.Lock()
-
-@app.route('/')
-def home():
-    return "Казино работает 24/7 с вечным интернет-сохранением!"
 
 # --- АВТОМАТИЧЕСКАЯ ИНТЕРНЕТ-БАЗА ---
 def load_db():
@@ -231,11 +225,7 @@ def handle_text(message):
             threading.Thread(target=save_db, daemon=True).start()
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-def run_bot_polling():
-    """Запуск бота через 5 секунд, когда Flask уже железно занял порт и Render спокоен"""
-    time.sleep(5)
-    try:
-        bot.remove_webhook()
-        print("Телеграм-бот успешно запущен в фоновом режиме!")
-        bot.infinity_polling(none_stop=True)
-    except Exception as e:
+if __name__ == "__main__":
+    bot.remove_webhook()
+    print("Бот запущен напрямую!")
+    bot.infinity_polling(none_stop=True)
