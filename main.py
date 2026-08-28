@@ -3,6 +3,7 @@ import random
 import os
 import telebot
 from telebot import types
+import threading
 import requests
 from flask import Flask, request
 
@@ -10,20 +11,21 @@ from flask import Flask, request
 BOT_TOKEN = "8958818419:AAFvNQDApLJPYlyVKYsKHd5biu71sqGDhlo"  # Твой токен
 COOLDOWN_TIME = 1
 
-# Твой уникальный ключ для вечной базы в интернете
+# Твой уникальный ключ для базы данных Keyv
 CLOUD_STORAGE_URL = "https://onrender.com"
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)  # Выключили потоки пуллинга!
+bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__)
 local_db = {"users": {}}
 
 @app.route('/')
 def home():
-    return "Казино работает 24/7 на вебхуках!"
+    # Эта надпись будет на сайте, чтобы ты видел, что всё отлично!
+    return "<h1>Всё зашибись! Казино работает в облаке Render 24/7!</h1>"
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def telegram_webhook():
-    """Сюда Telegram будет мгновенно присылать сообщения из чатов"""
+    """Сюда Telegram присылает сообщения пользователей"""
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
@@ -32,7 +34,7 @@ def telegram_webhook():
     else:
         return 'Forbidden', 403
 
-# --- АВТОМАТИЧЕСКАЯ ИНТЕРНЕТ-БАЗА ---
+# --- АВТОМАТИЧЕСКАЯ ИНТЕРНЕТ-БАЗА ДАННЫХ ---
 def load_db():
     global local_db
     try:
@@ -50,7 +52,6 @@ def load_db():
 def save_db():
     try:
         requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
-        print("Балансы успешно зафиксированы в облаке!")
     except:
         pass
 
@@ -213,8 +214,26 @@ def handle_text(message):
         save_db()
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-# Точка входа для запуска на Render наружу
+# АВТОМАТИЧЕСКАЯ УСТАНОВКА МОСТА С ТЕЛЕГРАМОМ ПРИ СТАРТЕ НА RENDER
+def setup_webhook_auto():
+    time.sleep(3)
+    try:
+        # Сервер сам берет свой текущий адрес из внутренней системы Render
+        render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+        if render_service_name:
+            webhook_url = f"https://{render_url}/{BOT_TOKEN}"
+            bot.remove_webhook()
+            time.sleep(1)
+            bot.set_webhook(url=webhook_url)
+            print(f"Мост успешно построен автоматически к адресу: {webhook_url}")
+    except Exception as e:
+        print(f"Ошибка настройки моста: {e}")
+
 if __name__ == "__main__":
+    # Запускаем автоматический мост в фоновом потоке
+    threading.Thread(target=setup_webhook_auto, daemon=True).start()
+    
+    # Запускаем Flask на порту 10000 для прохождения тестов Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
