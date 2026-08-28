@@ -14,7 +14,7 @@ COOLDOWN_TIME = 1
 # Твой уникальный ключ для вечной базы в интернете
 CLOUD_STORAGE_URL = "https://onrender.com"
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True) # Включили внутреннюю многопоточность telebot
 last_action = {}
 app = Flask(__name__)
 local_db = {"users": {}}
@@ -40,12 +40,11 @@ def load_db():
     local_db = {"users": {}}
 
 def save_db():
-    with db_lock:
-        try:
-            requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
-            print("Балансы успешно зафиксированы в облаке!")
-        except:
-            pass
+    try:
+        requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
+        print("Балансы успешно зафиксированы в облаке!")
+    except:
+        print("Ошибка сохранения в облако")
 
 load_db()
 
@@ -69,8 +68,8 @@ def init_user(user_id, username):
                 "used_promos": [],
                 "state": None
             }
-            threading.Thread(target=save_db, daemon=True).start()
-        elif "used_promos" not in local_db["users"][uid]:
+            save_db()
+        if "used_promos" not in local_db["users"][uid]:
             local_db["users"][uid]["used_promos"] = []
 
 def get_main_menu():
@@ -120,17 +119,18 @@ def handle_text(message):
                     init_user(to_id, message.reply_to_message.from_user.username)
                     local_db["users"][uid]["balance"] -= amount
                     local_db["users"][to_id]["balance"] += amount
-                    threading.Thread(target=save_db, daemon=True).start()
+                    save_db()
                 return bot.reply_to(message, f"✅ Успешный перевод {amount} монет!")
 
     if check_spam(message.from_user.id): return
     state = local_db["users"][uid].get("state")
 
-    # Ввод ставки
+    # Ввод ставки (ГЛАВНОЕ ИСПРАВЛЕНИЕ ЛАГОВ!)
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
         with db_lock:
             local_db["users"][uid]["state"] = None
+            
         if not message.text.isdigit():
             return bot.send_message(message.chat.id, "❌ Ставка должна быть числом!", reply_markup=get_main_menu())
         
@@ -138,29 +138,37 @@ def handle_text(message):
         if bet <= 0 or local_db["users"][uid]["balance"] < bet:
             return bot.send_message(message.chat.id, "❌ Некорректная ставка или мало монет!", reply_markup=get_main_menu())
         
+        # Списываем ставку из баланса
         with db_lock:
             local_db["users"][uid]["balance"] -= bet
-            save_db()
         
+        # Мгновенно кидаем кубик, не дожидаясь ответа базы данных
         emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰", "basketball": "🏀"}
-        msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
-        val = msg.dice.value
+        try:
+            msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
+            val = msg.dice.value
+        except Exception as e:
+            return bot.send_message(message.chat.id, f"❌ Ошибка отправки кубика Telegram: {e}")
         
+        # Логика выигрыша
         is_win = False
         if game_type == "roulette" and val == 64: is_win = True
         elif game_type == "darts" and val >= 4 and val <= 6: is_win = True
         elif game_type == "football" and val >= 3 and val <= 5: is_win = True
         elif game_type == "basketball" and (val == 4 or val == 5): is_win = True
         
-        with db_lock:
-            if is_win:
-                multiplier = round(random.uniform(1.5, 5.0), 1)
-                win_amount = int(bet * multiplier)
+        # Рассчитываем итог
+        if is_win:
+            multiplier = round(random.uniform(1.5, 5.0), 1)
+            win_amount = int(bet * multiplier)
+            with db_lock:
                 local_db["users"][uid]["balance"] += win_amount
-                bot.reply_to(message, f"🎉 *ПОБЕДА В {game_type.upper()}!* 🎉\n🔥 Выпало: {val}\n📈 Множитель: x{multiplier}\n💰 Выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
-            else:
-                bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
-            threading.Thread(target=save_db, daemon=True).start()
+            bot.reply_to(message, f"🎉 *ПОБЕДА В {game_type.upper()}!* 🎉\n🔥 Выпало: {val}\n📈 Множитель: x{multiplier}\n💰 Выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, f"😢 *ПРОИГРЫШ*\nВыпало: {val}\nТы потерял {bet} монет. Повезет в следующий раз!")
+            
+        # Сохраняем в интернет-базу строго в конце, чтобы бот не зависал во время игры!
+        save_db()
         return
 
     if state == "promo_waiting":
@@ -176,8 +184,8 @@ def handle_text(message):
         with db_lock:
             local_db["users"][uid]["balance"] += 500
             local_db["users"][uid]["used_promos"].append(code)
-            threading.Thread(target=save_db, daemon=True).start()
-        return bot.send_message(message.chat.id, f"🎫 Код {code} активирован! +500 монет.", reply_markup=get_main_menu())
+            save_db()
+        return bot.send_message(message.chat.id, f"🎫 Код {code} activated! +500 монет.", reply_markup=get_main_menu())
 
     # Меню кнопок
     if message.text == "💵 Мой баланс":
@@ -200,7 +208,7 @@ def handle_text(message):
             bonus = random.randint(50, 200)
             local_db["users"][uid]["balance"] += bonus
             local_db["users"][uid]["last_hourly"] = now
-            threading.Thread(target=save_db, daemon=True).start()
+            save_db()
         bot.send_message(message.chat.id, f"🎁 Получен часовой бонус: +{bonus} монет!")
     elif message.text == "📆 Ежедневный бонус":
         now = int(time.time())
@@ -211,17 +219,21 @@ def handle_text(message):
             bonus = random.randint(300, 1000)
             local_db["users"][uid]["balance"] += bonus
             local_db["users"][uid]["last_daily"] = now
-            threading.Thread(target=save_db, daemon=True).start()
+            save_db()
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
 def run_bot_polling():
-    """Запуск бота в фоне после того, как Flask займет порт"""
-    time.sleep(2)
+    """Запуск пуллинга с автоматическим перезапуском при сбоях сети Render"""
     bot.remove_webhook()
-    bot.infinity_polling(none_stop=True)
+    while True:
+        try:
+            print("Фоновый пуллинг Телеграм-бота успешно запущен!")
+            bot.polling(none_stop=True, interval=0, timeout=20)
+        except Exception as e:
+            print(f"Сбой сети пуллинга, перезапуск через 3 сек... Ошибка: {e}")
+            time.sleep(3)
 
 if __name__ == "__main__":
+    # Запускаем пуллинг в параллельном независимом потоке
     threading.Thread(target=run_bot_polling, daemon=True).start()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
+    
