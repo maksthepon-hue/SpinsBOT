@@ -5,22 +5,34 @@ import telebot
 from telebot import types
 import threading
 import requests
-from flask import Flask
+from flask import Flask, request
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAFvNQDApLJPYlyVKYsKHd5biu71sqGDhlo"  # Твой токен
+BOT_TOKEN = "8958818419:AAGTW5OgbVlnRxDokAEsDG06rU_Jea6MU1E"  # Твой токен
+COOLDOWN_TIME = 1
 
-# Твой уникальный ключ для базы данных Keyv
+# Твой уникальный ключ для вечной интернет-базы Keyv
 CLOUD_STORAGE_URL = "https://onrender.com"
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=False)  # Воркер вебхуков работает строго в один поток
 app = Flask(__name__)
 local_db = {"users": {}}
-db_lock = threading.Lock()
 
 @app.route('/')
 def home():
-    return "<h1>Казино работает в облаке Render 24/7!</h1>"
+    # Эта надпись будет на сайте наружу, как ты и просил!
+    return "<h1>Всё зашибись! Казино работает в облаке Render 24/7!</h1>"
+
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def telegram_webhook():
+    """Сюда Telegram будет принудительно пересылать сообщения из чатов"""
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Forbidden', 403
 
 # --- АВТОМАТИЧЕСКАЯ ИНТЕРНЕТ-БАЗА ДАННЫХ ---
 def load_db():
@@ -38,13 +50,22 @@ def load_db():
     local_db = {"users": {}}
 
 def save_db():
-    with db_lock:
-        try:
-            requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
-        except:
-            pass
+    try:
+        requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
+    except:
+        pass
 
 load_db()
+
+def check_spam(user_id):
+    now = time.time()
+    if user_id in last_action:
+        if now - last_action[user_id] < COOLDOWN_TIME:
+            return True
+    last_action[user_id] = now
+    return False
+
+last_action = {}
 
 def init_user(user_id, username):
     uid = str(user_id)
@@ -192,24 +213,26 @@ def handle_text(message):
         save_db()
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-def run_bot_polling():
-    """ЖЕСТКИЙ СБРОС ВЕБХУКОВ ИЗ СЕРВЕРА RENDER И ЗАПУСК БОТА"""
+# --- БРОНЕБОЙНАЯ АВТОНАСТРОЙКА ВЕБХУКА ИЗНУТРИ СЕРВЕРА ---
+def setup_webhook_auto():
+    time.sleep(4)
     try:
-        # Сервер отправляет принудительный запрос на удаление вебхука из Telegram API
-        requests.get(f"https://telegram.org{BOT_TOKEN}/deleteWebhook", timeout=5)
-        time.sleep(2)
-        bot.remove_webhook()
-        time.sleep(1)
-        print("Застрявший вебхук стерт сервером! Бот запущен в чистый пуллинг!")
-        bot.infinity_polling(none_stop=True, skip_pending=True)
+        # Сервер сам вычисляет свой адрес на хостинге Render
+        render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+        if render_url:
+            webhook_url = f"https://{render_url}/{BOT_TOKEN}"
+            
+            # Жесткий сброс застрявшего кэша напрямую через Telegram API
+            requests.get(f"https://telegram.org{BOT_TOKEN}/deleteWebhook", timeout=5)
+            time.sleep(1)
+            
+            # Прописываем абсолютно новый вебхук в базу Telegram
+            requests.get(f"https://telegram.org{BOT_TOKEN}/setWebhook?url={webhook_url}", timeout=5)
+            print(f"Вебхук успешно прописан в Telegram API: {webhook_url}")
     except Exception as e:
-        print(f"Ошибка старта: {e}")
+        print(f"Ошибка настройки: {e}")
 
 if __name__ == "__main__":
-    # 1. Запускаем чистку вебхуков и старт бота в фоновом потоке
-    threading.Thread(target=run_bot_polling, daemon=True).start()
-    
-    # 2. Основным процессом держим Flask для Render
+    threading.Thread(target=setup_webhook_auto, daemon=True).start()
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
 
