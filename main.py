@@ -9,7 +9,7 @@ from flask import Flask, request
 
 # --- НАСТРОЙКИ ---
 # ⚠️ ОБЯЗАТЕЛЬНО ПРОВЕРЬ: Здесь должен стоять твой САМЫЙ СВЕЖИЙ ТОКЕН из @BotFather!
-BOT_TOKEN = "8958818419:AAGTW5OgbVlnRxDokAEsDG06rU_Jea6MU1E"  
+BOT_TOKEN = "8958818419:AAGTNrRlsCGMyAU9OSKHEe6jA0iVDKsY7yc"  
 COOLDOWN_TIME = 1
 
 # Твой уникальный ключ для вечной интернет-базы Keyv
