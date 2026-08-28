@@ -8,7 +8,7 @@ import requests
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAF4PoxE8jAr-QlmfiFZp4lhneXYjM4Hdf0"  # Твой чистый токен
+BOT_TOKEN = "8958818419:AAF4PoxE8jAr-QlmfiFZp4lhneXYjM4Hdf0"  # Твой чистый рабочий токен
 COOLDOWN_TIME = 2
 
 # Твой уникальный ключ для вечной базы в интернете
@@ -152,10 +152,14 @@ def handle_text(message):
         time.sleep(4)
         
         is_win = False
-        if game_type == "roulette" and val == 64: is_win = True
-        elif game_type == "darts" and val >= 4 and val <= 6: is_win = True
-        elif game_type == "football" and val >= 3 and val <= 5: is_win = True
-        elif game_type == "basketball" and (val == 4 or val == 5): is_win = True
+        if game_type == "roulette":
+            if val == 64: is_win = True
+        elif game_type == "darts":
+            if val >= 4 and val <= 6: is_win = True
+        elif game_type == "football":
+            if val >= 3 and val <= 5: is_win = True
+        elif game_type == "basketball":
+            if val == 4 or val == 5: is_win = True
         
         with db_lock:
             if is_win:
@@ -234,6 +238,8 @@ def run_bot_polling():
         bot.remove_webhook()
         print("Телеграм-бот успешно запущен в фоновом режиме!")
         bot.infinity_polling(none_stop=True)
+    except Exception as e:
+
     except Exception as e:
         print(f"Ошибка пуллинга: {e}")
 
