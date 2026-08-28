@@ -3,40 +3,21 @@ import random
 import os
 import telebot
 from telebot import types
-import threading
 import requests
-from flask import Flask, request
 
 # --- НАСТРОЙКИ ---
-# ⚠️ ОБЯЗАТЕЛЬНО ПРОВЕРЬ: Здесь должен стоять твой САМЫЙ СВЕЖИЙ ТОКЕН из @BotFather!
+# ⚠️ УБЕДИСЬ, ЧТО ТУТ СТОИТ ТВОЙ САМЫЙ СВЕЖИЙ ТОКЕН ИЗ @BotFather!
 BOT_TOKEN = "8958818419:AAGTNrRlsCGMyAU9OSKHEe6jA0iVDKsY7yc"  
 COOLDOWN_TIME = 1
 
-# Твой уникальный ключ для вечной интернет-базы Keyv
+# Ключ для вечной интернет-базы Keyv
 CLOUD_STORAGE_URL = "https://onrender.com"
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
-app = Flask(__name__)
-local_db = {"users": {}}
+bot = telebot.TeleBot(BOT_TOKEN)
 last_action = {}
+local_db = {"users": {}}
 
-@app.route('/')
-def home():
-    # Эта надпись будет на сайте наружу, чтобы ты видел, что сервер живой
-    return "<h1>Всё зашибись! Казино работает в облаке Render 24/7!</h1>"
-
-@app.route(f'/{BOT_TOKEN}', methods=['POST'])
-def telegram_webhook():
-    """Сюда Telegram присылает сообщения пользователей"""
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    else:
-        return 'Forbidden', 403
-
-# --- АВТОМАТИЧЕСКАЯ ИНТЕРНЕТ-БАЗА ДАННЫХ ---
+# --- АВТОМАТИЧЕСКАЯ ИНТЕРНЕТ-БАЗА ---
 def load_db():
     global local_db
     try:
@@ -99,7 +80,7 @@ def cmd_start(message):
     
     welcome = (
         f"🎰 ✨ *Добро пожаловать в Казино, {message.from_user.first_name}!* ✨ 🎰\n\n"
-        "💰 Твой вечный баланс и таймеры бонусов теперь защищены.\n"
+        "💰 Твой вечный баланс и таймеры бонусов защищены.\n"
         "🎮 Нажимай на кнопки меню снизу, чтобы играть!\n\n"
         "🤝 *Перевод другу в группе:* ответь на его сообщение текстом: `дать [сумма]`"
     )
@@ -110,7 +91,6 @@ def handle_text(message):
     uid = str(message.from_user.id)
     init_user(message.from_user.id, message.from_user.username)
     
-    # Текстовые переводы в группах
     if message.chat.type in ["group", "supergroup"] and message.reply_to_message:
         text_lower = message.text.lower().strip()
         if text_lower.startswith("дать") or text_lower.startswith("перевод"):
@@ -133,7 +113,6 @@ def handle_text(message):
     if check_spam(message.from_user.id): return
     state = local_db["users"][uid].get("state")
 
-    # Ввод ставки для игр
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
         local_db["users"][uid]["state"] = None
@@ -143,7 +122,7 @@ def handle_text(message):
         
         bet = int(message.text)
         if bet <= 0 or local_db["users"][uid]["balance"] < bet:
-            return bot.send_message(message.chat.id, "❌ Некорректная ставка или мало монет!", reply_markup=get_main_menu())
+            return bot.send_message(message.chat.id, "❌ Некорректная ставка!", reply_markup=get_main_menu())
         
         local_db["users"][uid]["balance"] -= bet
         
@@ -171,7 +150,6 @@ def handle_text(message):
         save_db()
         return
 
-    # Ожидание промокода
     if state == "promo_waiting":
         local_db["users"][uid]["state"] = None
         code = message.text.strip().upper()
@@ -186,7 +164,6 @@ def handle_text(message):
         save_db()
         return bot.send_message(message.chat.id, f"🎫 Промокод {code} активирован! +500 монет.", reply_markup=get_main_menu())
 
-    # Меню основных кнопок
     if message.text == "💵 Мой баланс":
         bot.send_message(message.chat.id, f"💰 Твой баланс: *{local_db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
     elif message.text in ["⚽ Футбол", "🎯 Дартс", "🎰 Рулетка", "🏀 Баскетбол"]:
@@ -217,29 +194,11 @@ def handle_text(message):
         save_db()
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-# --- БРОНЕБОЙНАЯ АВТОНАСТРОЙКА ВЕБХУКА ИЗНУТРИ СЕРВЕРА ---
-def # --- АВТОМАТИЧЕСКАЯ НАСТРОЙКА ВЕБХУКА ИЗНУТРИ СЕРВЕРА ---
-def setup_webhook_auto():
-    time.sleep(3)
-    try:
-        # Render сам автоматически подставляет точное имя твоего сайта в эту переменную!
-        render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-        if render_url:
-            webhook_url = f"https://{render_url}/{BOT_TOKEN}"
-            
-            # Жесткий сброс застрявших старых хвостов
-            requests.get(f"https://telegram.org{BOT_TOKEN}/deleteWebhook", timeout=5)
-            time.sleep(1)
-            
-            # Намертво привязываем новый мост к Telegram API по правильному адресу
-            r = requests.get(f"https://telegram.org{BOT_TOKEN}/setWebhook?url={webhook_url}", timeout=5)
-            print(f"Автоматический мост успешно построен сервером: {webhook_url}")
-    except Exception as e:
-        print(f"Ошибка настройки: {e}")
-
 if __name__ == "__main__":
-    threading.Thread(target=setup_webhook_auto, daemon=True).start()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-
+    # Сбрасываем старые вебхуки и запускаем чистый, легкий пуллинг
+    try:
+        bot.remove_webhook()
+    except:
+        pass
+    print("Старт чистого пуллинга...")
+    bot.infinity_polling(none_stop=True, skip_pending=True)
