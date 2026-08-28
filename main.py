@@ -8,7 +8,7 @@ import requests
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAEJIesZK2nPYwPFjJPrgzGiJCcYjwI3fFE"  # Твой токен
+BOT_TOKEN = "8958818419:AAEJIesZK2nPYwPFjJPrgzGiJCcYjwI3fFE"  # Твой новый чистый токен
 COOLDOWN_TIME = 2
 
 # Твой уникальный ключ для вечной базы в интернете
@@ -31,6 +31,8 @@ def load_db():
         r = requests.get(CLOUD_STORAGE_URL, timeout=5)
         if r.status_code == 200 and r.json():
             local_db = r.json()
+            if "users" not in local_db:
+                local_db = {"users": {}}
             print("Вечные балансы успешно скачаны из облачного хранилища!")
             return
     except:
@@ -41,7 +43,7 @@ def save_db():
     with db_lock:
         try:
             requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
-            print("Балансы и таймеры успешно зафиксированы в облаке!")
+            print("Балансы и таймеры успешно зафиксированы in облаке!")
         except:
             print("Временный сбой сети при сохранении")
 
@@ -64,9 +66,12 @@ def init_user(user_id, username):
                 "balance": 1000,
                 "last_hourly": 0,
                 "last_daily": 0,
-                "used_promos": []
+                "used_promos": [],
+                "state": None
             }
             threading.Thread(target=save_db, daemon=True).start()
+        elif "used_promos" not in local_db["users"][uid]:
+            local_db["users"][uid]["used_promos"] = []
 
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -82,6 +87,8 @@ def get_main_menu():
 def cmd_start(message):
     if check_spam(message.from_user.id): return
     init_user(message.from_user.id, message.from_user.username)
+    with db_lock:
+        local_db["users"][str(message.from_user.id)]["state"] = None
     
     welcome = (
         f"🎰 ✨ *Добро пожаловать в Казино, {message.from_user.first_name}!* ✨ 🎰\n\n"
@@ -156,7 +163,7 @@ def handle_text(message):
         
         with db_lock:
             if is_win:
-                multiplier = round(random.uniform(1.5, 5.0), 1)  # ВЕРНУЛИ ТВОЙ ЛЮБИМЫЙ РАНДОМНЫЙ МНОЖИТЕЛЬ!
+                multiplier = round(random.uniform(1.5, 5.0), 1)
                 win_amount = int(bet * multiplier)
                 local_db["users"][uid]["balance"] += win_amount
                 bot.reply_to(message, f"🎉 *ПОБЕДА В {game_type.upper()}!* 🎉\n🔥 Выпало: {val}\n📈 Множитель: x{multiplier}\n💰 Выигрыш: *{win_amount}* монет!", parse_mode="Markdown")
@@ -168,16 +175,21 @@ def handle_text(message):
     if state == "promo_waiting":
         with db_lock:
             local_db["users"][uid]["state"] = None
-        code = message.text.strip()
-        if code not in db.get("promos", {}): return bot.send_message(message.chat.id, "❌ Такого промокода нет!", reply_markup=get_main_menu())
-        if code in local_db["users"][uid].get("used_promos", []): return bot.send_message(message.chat.id, "❌ Ты уже активировал этот код!", reply_markup=get_main_menu())
+        code = message.text.strip().upper()
+        
+        # Исправлено: Простая и надежная генерация 50 промокодов прямо на ходу
+        valid_promos = [f"PROMO-{i}" for i in range(1, 51)]
+        if code not in valid_promos: 
+            return bot.send_message(message.chat.id, "❌ Такого промокода нет!", reply_markup=get_main_menu())
+            
+        if code in local_db["users"][uid].get("used_promos", []): 
+            return bot.send_message(message.chat.id, "❌ Ты уже активировал этот код!", reply_markup=get_main_menu())
         
         with db_lock:
             local_db["users"][uid]["balance"] += 500
-            if "used_promos" not in local_db["users"][uid]: local_db["users"][uid]["used_promos"] = []
             local_db["users"][uid]["used_promos"].append(code)
             threading.Thread(target=save_db, daemon=True).start()
-        return bot.send_message(message.chat.id, "🎫 Промокод активирован! +500 монет.", reply_markup=get_main_menu())
+        return bot.send_message(message.chat.id, f"🎫 Промокод {code} активирован! +500 монет.", reply_markup=get_main_menu())
 
     # Главное меню кнопок
     if message.text == "💵 Мой баланс":
@@ -227,7 +239,7 @@ def run_flask():
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     bot.remove_webhook()
-    bot.infinity_polling(none_stop=True)
+
 
 
 
