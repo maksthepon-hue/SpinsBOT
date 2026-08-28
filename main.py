@@ -9,7 +9,6 @@ from flask import Flask, request
 
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAFvNQDApLJPYlyVKYsKHd5biu71sqGDhlo"  # Твой токен
-COOLDOWN_TIME = 1
 
 # Твой уникальный ключ для базы данных Keyv
 CLOUD_STORAGE_URL = "https://onrender.com"
@@ -17,16 +16,13 @@ CLOUD_STORAGE_URL = "https://onrender.com"
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__)
 local_db = {"users": {}}
-last_action = {}
 
 @app.route('/')
 def home():
-    # Эта надпись будет на сайте, чтобы ты видел, что всё отлично!
     return "<h1>Всё зашибись! Казино работает в облаке Render 24/7!</h1>"
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def telegram_webhook():
-    """Сюда Telegram присылает сообщения пользователей"""
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
@@ -58,14 +54,6 @@ def save_db():
 
 load_db()
 
-def check_spam(user_id):
-    now = time.time()
-    if user_id in last_action:
-        if now - last_action[user_id] < COOLDOWN_TIME:
-            return True
-    last_action[user_id] = now
-    return False
-
 def init_user(user_id, username):
     uid = str(user_id)
     if uid not in local_db["users"]:
@@ -92,7 +80,6 @@ def get_main_menu():
 # --- ОБРАБОТКА ТЕЛЕГРАМ ---
 @bot.message_handler(commands=['start', 'menu'])
 def cmd_start(message):
-    if check_spam(message.from_user.id): return
     init_user(message.from_user.id, message.from_user.username)
     local_db["users"][str(message.from_user.id)]["state"] = None
     
@@ -115,7 +102,6 @@ def handle_text(message):
         if text_lower.startswith("дать") or text_lower.startswith("перевод"):
             amount_str = "".join(filter(str.isdigit(), text_lower))
             if amount_str.isdigit():
-                if check_spam(message.from_user.id): return
                 to_id = str(message.reply_to_message.from_user.id)
                 if uid == to_id: return bot.reply_to(message, "❌ Нельзя переводить себе!")
                 
@@ -129,7 +115,6 @@ def handle_text(message):
                 save_db()
                 return bot.reply_to(message, f"✅ Успешный перевод {amount} монет!")
 
-    if check_spam(message.from_user.id): return
     state = local_db["users"][uid].get("state")
 
     # Ввод ставки
@@ -230,10 +215,6 @@ def setup_webhook_auto():
         print(f"Ошибка настройки моста: {e}")
 
 if __name__ == "__main__":
-    # Запускаем автоматический мост в фоновом потоке
     threading.Thread(target=setup_webhook_auto, daemon=True).start()
-    
-    # Запускаем Flask на порту 10000 для прохождения тестов Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
