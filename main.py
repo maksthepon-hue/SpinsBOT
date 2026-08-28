@@ -125,7 +125,7 @@ def handle_text(message):
     if check_spam(message.from_user.id): return
     state = local_db["users"][uid].get("state")
 
-    # Ввод ставки (ГЛАВНОЕ ИСПРАВЛЕНИЕ ЛАГОВ!)
+    # Ввод ставки
     if state and state.startswith("bet_"):
         game_type = state.replace("bet_", "")
         with db_lock:
@@ -142,7 +142,7 @@ def handle_text(message):
         with db_lock:
             local_db["users"][uid]["balance"] -= bet
         
-        # Мгновенно кидаем кубик, не дожидаясь ответа базы данных
+        # Мгновенно кидаем кубик
         emojis = {"football": "⚽", "darts": "🎯", "roulette": "🎰", "basketball": "🏀"}
         try:
             msg = bot.send_dice(message.chat.id, emoji=emojis[game_type])
@@ -185,7 +185,7 @@ def handle_text(message):
             local_db["users"][uid]["balance"] += 500
             local_db["users"][uid]["used_promos"].append(code)
             save_db()
-        return bot.send_message(message.chat.id, f"🎫 Код {code} activated! +500 монет.", reply_markup=get_main_menu())
+        return bot.send_message(message.chat.id, f"🎫 Промокод {code} активирован! +500 монет.", reply_markup=get_main_menu())
 
     # Меню кнопок
     if message.text == "💵 Мой баланс":
@@ -223,17 +223,21 @@ def handle_text(message):
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
 def run_bot_polling():
-    """Запуск пуллинга с автоматическим перезапуском при сбоях сети Render"""
+    """Запуск пуллинга бота в отдельном независимом потоке"""
     bot.remove_webhook()
     while True:
         try:
             print("Фоновый пуллинг Телеграм-бота успешно запущен!")
             bot.polling(none_stop=True, interval=0, timeout=20)
-        except Exception as e:
-            print(f"Сбой сети пуллинга, перезапуск через 3 сек... Ошибка: {e}")
+        except:
             time.sleep(3)
 
+# Точка входа для правильного Flask-сервера на Render
 if __name__ == "__main__":
-    # Запускаем пуллинг в параллельном независимом потоке
+    # 1. Запускаем Телеграм-бота в фоновом потоке
     threading.Thread(target=run_bot_polling, daemon=True).start()
+    
+    # 2. Основным процессом держим Flask на порту 10000
+    port = int(os.environ.get("PORT", 10000))
+
     
