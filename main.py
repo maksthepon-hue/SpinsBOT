@@ -218,22 +218,28 @@ def handle_text(message):
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
 # --- БРОНЕБОЙНАЯ АВТОНАСТРОЙКА ВЕБХУКА ИЗНУТРИ СЕРВЕРА ---
+def # --- АВТОМАТИЧЕСКАЯ НАСТРОЙКА ВЕБХУКА ИЗНУТРИ СЕРВЕРА ---
 def setup_webhook_auto():
     time.sleep(3)
     try:
-        # Вручную жестко прописали твой адрес ://onrender.com
-        webhook_url = f"https://://onrender.com/{BOT_TOKEN}"
-        
-        # Полный сброс застрявших старых хвостов
-        requests.get(f"https://telegram.org{BOT_TOKEN}/deleteWebhook", timeout=5)
-        time.sleep(1)
-        
-        # Намертво привязываем новый мост к Telegram API
-        requests.get(f"https://telegram.org{BOT_TOKEN}/setWebhook?url={webhook_url}", timeout=5)
-        print("Автоматический мост успешно построен сервером!")
-    except:
-        pass
+        # Render сам автоматически подставляет точное имя твоего сайта в эту переменную!
+        render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+        if render_url:
+            webhook_url = f"https://{render_url}/{BOT_TOKEN}"
+            
+            # Жесткий сброс застрявших старых хвостов
+            requests.get(f"https://telegram.org{BOT_TOKEN}/deleteWebhook", timeout=5)
+            time.sleep(1)
+            
+            # Намертво привязываем новый мост к Telegram API по правильному адресу
+            r = requests.get(f"https://telegram.org{BOT_TOKEN}/setWebhook?url={webhook_url}", timeout=5)
+            print(f"Автоматический мост успешно построен сервером: {webhook_url}")
+    except Exception as e:
+        print(f"Ошибка настройки: {e}")
 
 if __name__ == "__main__":
     threading.Thread(target=setup_webhook_auto, daemon=True).start()
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
 
