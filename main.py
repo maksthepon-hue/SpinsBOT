@@ -8,7 +8,7 @@ import requests
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAF4PoxE8jAr-QlmfiFZp4lhneXYjM4Hdf0"  # Твой чистый рабочий токен
+BOT_TOKEN = "8958818419:AAF4PoxE8jAr-QlmfiFZp4lhneXYjM4Hdf0"  # Твой токен
 COOLDOWN_TIME = 2
 
 # Твой уникальный ключ для вечной базы в интернете
@@ -239,7 +239,3 @@ def run_bot_polling():
         print("Телеграм-бот успешно запущен в фоновом режиме!")
         bot.infinity_polling(none_stop=True)
     except Exception as e:
-
-    except Exception as e:
-        print(f"Ошибка пуллинга: {e}")
-
