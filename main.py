@@ -17,6 +17,7 @@ CLOUD_STORAGE_URL = "https://onrender.com"
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__)
 local_db = {"users": {}}
+last_action = {}
 
 @app.route('/')
 def home():
@@ -218,9 +219,8 @@ def handle_text(message):
 def setup_webhook_auto():
     time.sleep(3)
     try:
-        # Сервер сам берет свой текущий адрес из внутренней системы Render
         render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-        if render_service_name:
+        if render_url:
             webhook_url = f"https://{render_url}/{BOT_TOKEN}"
             bot.remove_webhook()
             time.sleep(1)
