@@ -8,7 +8,7 @@ import requests
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой токен
+BOT_TOKEN = "8958818419:AAHppnHsT9mAfN1qk44YhTjf3oOME7qffe8"  # Твой токен
 COOLDOWN_TIME = 2
 
 # Твой уникальный ключ для вечной базы в интернете
