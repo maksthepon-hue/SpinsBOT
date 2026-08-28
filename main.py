@@ -8,7 +8,7 @@ import threading
 from flask import Flask
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой рабочий токен
+BOT_TOKEN = "8958818419:AAFUEkVcszwIeHhjBXp9It1XfMMe_YJjw8U"  # Твой токен
 DB_FILE = "casino_db.json"
 COOLDOWN_TIME = 2  # Антиспам в секундах
 
@@ -153,6 +153,7 @@ def handle_text(message):
     uid = str(message.from_user.id)
     init_user(message.from_user.id, message.from_user.username)
     
+    # --- ЛОГИКА ТЕКСТОВЫХ ПЕРЕВОДОВ В ГРУППАХ ---
     if message.chat.type in ["group", "supergroup"] and message.reply_to_message:
         text_lower = message.text.lower().strip()
         trigger_words = ["дать", "перевод", "pay", "подарить"]
@@ -232,6 +233,7 @@ def handle_text(message):
         save_db(db)
         return bot.send_message(message.chat.id, f"🎫 Промокод активирован! +{reward} монет.", reply_markup=get_main_menu())
 
+    # --- КНОПКИ ГЛАВНОГО МЕНЮ ---
     if message.text == "💵 Мой баланс":
         bot.send_message(message.chat.id, f"💰 Твой баланс: *{db['users'][uid]['balance']}* монет.", parse_mode="Markdown")
         
@@ -248,9 +250,9 @@ def handle_text(message):
         
     elif message.text == "🎁 Ежечасный бонус":
         now = int(time.time())
-        if now - db["users"][uid]["last_hourly"] < 3600:
-            return bot.send_message(message.chat.id, f"⏳ Рано! Жди еще {(3600 - (now - db['users'][uid]['last_hourly'])) // 60} мин.")
-        bonus = random.randint(50, 200)
+        last_bonus = db["users"][uid].get("last_hourly", 0)
+        
+
 
 
 
