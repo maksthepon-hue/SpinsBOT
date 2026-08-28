@@ -5,7 +5,7 @@ import telebot
 from telebot import types
 import threading
 import requests
-from flask import Flask, request
+from flask import Flask
 
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = "8958818419:AAFvNQDApLJPYlyVKYsKHd5biu71sqGDhlo"  # Твой токен
@@ -13,23 +13,14 @@ BOT_TOKEN = "8958818419:AAFvNQDApLJPYlyVKYsKHd5biu71sqGDhlo"  # Твой ток�
 # Твой уникальный ключ для базы данных Keyv
 CLOUD_STORAGE_URL = "https://onrender.com"
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 app = Flask(__name__)
 local_db = {"users": {}}
+db_lock = threading.Lock()
 
 @app.route('/')
 def home():
-    return "<h1>Всё зашибись! Казино работает в облаке Render 24/7!</h1>"
-
-@app.route(f'/{BOT_TOKEN}', methods=['POST'])
-def telegram_webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    else:
-        return 'Forbidden', 403
+    return "<h1>Казино работает в облаке Render 24/7!</h1>"
 
 # --- АВТОМАТИЧЕСКАЯ ИНТЕРНЕТ-БАЗА ДАННЫХ ---
 def load_db():
@@ -47,10 +38,11 @@ def load_db():
     local_db = {"users": {}}
 
 def save_db():
-    try:
-        requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
-    except:
-        pass
+    with db_lock:
+        try:
+            requests.post(CLOUD_STORAGE_URL, json=local_db, timeout=5)
+        except:
+            pass
 
 load_db()
 
@@ -200,21 +192,20 @@ def handle_text(message):
         save_db()
         bot.send_message(message.chat.id, f"📆 Получен ежедневный бонус: +{bonus} монет!")
 
-# АВТОМАТИЧЕСКАЯ УСТАНОВКА МОСТА С ТЕЛЕГРАМОМ ПРИ СТАРТЕ НА RENDER
-def setup_webhook_auto():
-    time.sleep(3)
+def run_bot_polling():
+    """Чистый запуск пуллинга напрямую, полностью очищая застрявшие вебхуки"""
     try:
-        render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-        if render_url:
-            webhook_url = f"https://{render_url}/{BOT_TOKEN}"
-            bot.remove_webhook()
-            time.sleep(1)
-            bot.set_webhook(url=webhook_url)
-            print(f"Мост успешно построен автоматически к адресу: {webhook_url}")
+        bot.remove_webhook()
+        time.sleep(1)
+        print("Телеграм-бот успешно запущен в режиме прямого пуллинга!")
+        bot.infinity_polling(none_stop=True, skip_pending=True)
     except Exception as e:
-        print(f"Ошибка настройки моста: {e}")
+        print(f"Ошибка пуллинга: {e}")
 
 if __name__ == "__main__":
-    threading.Thread(target=setup_webhook_auto, daemon=True).start()
+    # 1. Запускаем пуллинг бота в отдельном фоновом потоке
+    threading.Thread(target=run_bot_polling, daemon=True).start()
+    
+    # 2. Основным процессом держим Flask для прохождения тестов Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
